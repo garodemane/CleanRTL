@@ -1,0 +1,135 @@
+package com.google.hamahang.core.bidi
+
+import java.util.regex.Pattern
+
+object TextRepairProcessor {
+    private const val LRI = "\u2066" // Left-to-Right Isolate
+    private const val PDI = "\u2069" // Pop Directional Isolate
+    private const val RLM = "\u200F" // Right-to-Left Mark
+
+    // Persian/Arabic-script character ranges
+    private val PERSIAN_CHAR_PATTERN = Pattern.compile("[\\u0600-\\u06FF\\uFB8A\\u067E\\u0686\\u06AF]")
+    // Strong Latin ranges (letters only, ignoring digits for directional classification)
+    private val STRONG_LATIN_PATTERN = Pattern.compile("[A-Za-z]")
+    private val LATIN_CHAR_PATTERN = Pattern.compile("[A-Za-z0-9]")
+
+    /**
+     * Core repair pipeline. Receives a mixed-language body of text and formats
+     * it non-destructively for correct bidi layout rendering.
+     */
+    fun repairText(input: String, enableNormalization: Boolean = true): String {
+        if (input.isBlank()) return input
+
+        // Split text by newlines safely supporting Windows, Linux, Mac endings
+        val paragraphs = input.split(Regex("\\R"))
+        val repairedParagraphs = paragraphs.map { paragraph ->
+            if (paragraph.isBlank()) return@map paragraph
+
+            val isRtl = isParagraphRtl(paragraph)
+            var result = paragraph
+
+            if (isRtl) {
+                // Step 1: Normalize Persian glyphs if enabled
+                if (enableNormalization) {
+                    result = normalizeCharacters(result)
+                }
+
+                // Step 2: Safe isolation of LTR runs (preserving markdown tokens)
+                result = isolateLtrSubRuns(result)
+
+                // Step 3: Handle punctuation at sentence ends
+                result = fixTrailingPunctuation(result)
+            }
+
+            result
+        }
+
+        return repairedParagraphs.joinToString("\n")
+    }
+
+    /**
+     * Determines whether a paragraph is directionally dominant RTL using standard UBA rules.
+     */
+    fun isParagraphRtl(text: String): Boolean {
+        val trimmedStr = text.trimStart()
+        if (trimmedStr.startsWith("\u200F")) return true
+        if (trimmedStr.startsWith("\u200E")) return false
+
+        // Resolve based on the first strong character (official Unicode Standard Annex #9)
+        // We scan for strong letters only, completely ignoring neutral numbers, spaces, and punctuation.
+        for (char in text) {
+            val charStr = char.toString()
+            if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
+                return true
+            } else if (STRONG_LATIN_PATTERN.matcher(charStr).matches()) {
+                return false
+            }
+        }
+        
+        // Fallback to letter-based weight counting if no strong characters exist
+        var rtlCount = 0
+        var ltrCount = 0
+        for (char in text) {
+            val charStr = char.toString()
+            if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
+                rtlCount++
+            } else if (STRONG_LATIN_PATTERN.matcher(charStr).matches()) {
+                ltrCount++
+            }
+        }
+        return rtlCount >= ltrCount
+    }
+
+    /**
+     * Substitutes Arabic Yeh and Kaf characters with native Persian alternatives,
+     * and maps spacing offsets around common suffix boundaries using ZWNJs.
+     */
+    fun normalizeCharacters(text: String): String {
+        return text
+            // Arabic Yeh to Persian Yeh
+            .replace('\u064A', '\u06CC') // ي -> ی
+            .replace('\u0649', '\u06CC') // ى -> ی
+            // Arabic Kaf to Persian Keheh
+            .replace('\u0643', '\u06A9') // ك -> ک
+            // ZWNJ formatting for plural suffix "ها"
+            .replace(Regex("(\\s+)(ها)(\\s+|$)"), "\u200C$2$3") // کتاب ها -> کتاب‌ها
+            // ZWNJ formatting for comparative/superlative suffixes "تر" & "ترین"
+            .replace(Regex("(\\s+)(ترین|تر)(\\s+|$)"), "\u200C$2$3") // بزرگ ترین -> بزرگ‌ترین
+    }
+
+    /**
+     * Wraps inline Latin text runs inside RTL paragraphs using Unicode bidi isolation markers.
+     * Prevents text layout leakage to surrounding Persian glyphs.
+     */
+    fun isolateLtrSubRuns(text: String): String {
+        // Targets Latin characters, numerals, technical URL routing, file paths or email strings terminating on alphanumeric
+        val ltrRegex = Regex("([a-zA-Z0-9_:\\/.\\-@#\\$]*[a-zA-Z0-9])")
+        
+        return text.replace(ltrRegex) { matchResult ->
+            val matchedValue = matchResult.value
+            // Do not isolate if already wrapped or if it represents a pure digit run
+            if (matchedValue.startsWith(LRI) || matchedValue.all { it.isDigit() }) {
+                matchedValue
+            } else {
+                "$LRI$matchedValue$PDI"
+            }
+        }
+    }
+
+    /**
+     * Fixes layout behavior where terminal periods or marks on RTL lines ending with
+     * an LTR word get rendered on the wrong far-right side of the layout bounding frame.
+     */
+    fun fixTrailingPunctuation(text: String): String {
+        // Targets trailing sentence punctuation preceded immediately by the LTR Isolate block end
+        val endingPunctuationRegex = Regex("(\\u2069)([.!?؟:])(\\s*)$")
+        return if (endingPunctuationRegex.containsMatchIn(text)) {
+            text.replace(endingPunctuationRegex) { match ->
+                val groupValues = match.groupValues
+                groupValues[1] + groupValues[2] + RLM + groupValues[3]
+            }
+        } else {
+            text
+        }
+    }
+}

@@ -1,0 +1,57 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Midnight Slate Background Squircle -->
+    <path
+        android:pathData="M24,10 L84,10 C92,10 98,16 98,24 L98,84 C98,92 92,98 84,98 L24,98 C16,98 10,92 10,84 L10,24 C10,16 16,10 24,10 Z"
+        android:fillColor="#0E1119" />
+
+    <!-- Minimalist Document Frame (Pure White & Matte Grey) -->
+    <!-- Outer boundary of a premium paper block -->
+    <path
+        android:pathData="M32,24 L64,24 L76,36 L76,80 C76,82.2 74.2,84 72,84 L32,84 C29.8,84 28,82.2 28,80 L28,28 C28,25.8 29.8,24 32,24 Z"
+        android:fillColor="#1E2330"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5" />
+
+    <!-- Folded paper top-right corner flap -->
+    <path
+        android:pathData="M64,24 L64,36 L76,36 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Abstract Document Text lines representing structured alignment -->
+    <path
+        android:pathData="M36,44 L68,44"
+        android:strokeColor="#8A94A6"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round" />
+        
+    <path
+        android:pathData="M36,54 L56,54"
+        android:strokeColor="#8A94A6"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round" />
+        
+    <path
+        android:pathData="M36,64 L64,64"
+        android:strokeColor="#8A94A6"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round" />
+
+    <!-- Futuristic Bidirectional Alignment Indicator (Electric Mint Green) -->
+    <!-- Two interlocking sleek diamond-headed arrows intersecting horizontally -->
+    <path
+        android:pathData="M16,54 L28,44 L28,50 L80,50 L80,44 L92,54 L80,64 L80,58 L28,58 L28,64 Z"
+        android:fillColor="#53D9A4" />
+
+    <!-- Sleek inner white dynamic flow line -->
+    <path
+        android:pathData="M26,54 L82,54"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+        
+</vector>
