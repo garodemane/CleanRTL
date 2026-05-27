@@ -51,21 +51,61 @@ object TextRepairProcessor {
      * Determines whether a paragraph is directionally dominant RTL using standard UBA rules.
      */
     fun isParagraphRtl(text: String): Boolean {
-        val trimmedStr = text.trimStart()
+        var trimmedStr = text.trimStart()
         if (trimmedStr.startsWith("\u200F")) return true
         if (trimmedStr.startsWith("\u200E")) return false
 
-        // Count Persian/Arabic script characters
-        var rtlCount = 0
-        for (char in text) {
+        // 1. Strip markdown checklist/list prefixes to scan the actual content direction
+        if (trimmedStr.startsWith("- [ ] ") || trimmedStr.startsWith("- [x] ") ||
+            trimmedStr.startsWith("- [ ]") || trimmedStr.startsWith("- [x]") ||
+            trimmedStr.startsWith("* [ ] ") || trimmedStr.startsWith("* [x] ") ||
+            trimmedStr.startsWith("* [ ]") || trimmedStr.startsWith("* [x]") ||
+            trimmedStr.startsWith("• [ ] ") || trimmedStr.startsWith("• [x] ") ||
+            trimmedStr.startsWith("• [ ]") || trimmedStr.startsWith("• [x]")
+        ) {
+            trimmedStr = trimmedStr.substring(5).trimStart()
+        } else if (trimmedStr.startsWith("[ ] ") || trimmedStr.startsWith("[x] ") ||
+                   trimmedStr.startsWith("[ ]") || trimmedStr.startsWith("[x]")
+        ) {
+            trimmedStr = trimmedStr.substring(3).trimStart()
+        } else if (trimmedStr.startsWith("- ") || trimmedStr.startsWith("* ") || trimmedStr.startsWith("• ")) {
+            trimmedStr = trimmedStr.substring(2).trimStart()
+        }
+
+        // 2. Strip numbered list prefix (e.g. "1. ", "12. ")
+        val numberedListMatch = Regex("^\\d+\\.\\s+(.*)").matchEntire(trimmedStr)
+        if (numberedListMatch != null) {
+            trimmedStr = numberedListMatch.groupValues[1]
+        }
+
+        // 3. Strip formula assignment prefix (e.g. "W = ", "H = ", "temp = ")
+        val formulaMatch = Regex("^[a-zA-Z_][a-zA-Z0-9_]*\\s*=\\s+(.*)").matchEntire(trimmedStr)
+        if (formulaMatch != null) {
+            trimmedStr = formulaMatch.groupValues[1]
+        }
+
+        // 4. Resolve based on the first strong character (official Unicode Standard Annex #9)
+        for (char in trimmedStr) {
             val charStr = char.toString()
             if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
-                rtlCount++
+                return true
+            } else if (STRONG_LATIN_PATTERN.matcher(charStr).matches()) {
+                return false
             }
         }
 
-        // If there is at least one Persian/Arabic character, the paragraph is dominant RTL
-        return rtlCount > 0
+        // 5. Fallback weight counting if no strong characters exist
+        var rtlCount = 0
+        var ltrCount = 0
+        for (char in trimmedStr) {
+            val charStr = char.toString()
+            if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
+                rtlCount++
+            } else if (STRONG_LATIN_PATTERN.matcher(charStr).matches()) {
+                ltrCount++
+            }
+        }
+        return rtlCount >= ltrCount
     }
 
     /**

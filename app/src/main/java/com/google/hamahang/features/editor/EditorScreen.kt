@@ -996,7 +996,7 @@ fun MarkdownPreviewPane(
                     trimmed.startsWith("### ") -> {
                         MarkdownHeader(text = bidiPrefix + trimmed.substring(4), size = (baseFontSize * 1.15).sp, weight = FontWeight.Bold)
                     }
-                    trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
+                    trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
                         MarkdownListItem(text = bidiPrefix + trimmed.substring(2), fontSize = baseFontSize.sp)
                     }
                     numberedListMatch != null -> {

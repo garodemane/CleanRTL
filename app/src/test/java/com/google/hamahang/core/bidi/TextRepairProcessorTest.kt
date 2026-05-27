@@ -103,6 +103,25 @@ class TextRepairProcessorTest {
     }
 
     @Test
+    fun testUserReportedAlignments() {
+        val checkListItem = "[x] کراتین مونوهیدرات — ۵ گرم روزانه"
+        val literalBulletCheckList = "• [x] کراتین مونوهیدرات — ۵ گرم روزانه"
+        val literalBulletFormula = "• W = وزن بر حسب کیلوگرم"
+        val formulaW = "W = وزن بر حسب کیلوگرم"
+        val formulaH = "H = قد بر حسب سانتی‌متر"
+        val formulaA = "A = سن بر حسب سال"
+        val normalTextWithEnglish = "شما: 2847.5 کالری در روز TDEE"
+
+        assertTrue("Checklist should be RTL", TextRepairProcessor.isParagraphRtl(checkListItem))
+        assertTrue("Literal bullet checklist should be RTL", TextRepairProcessor.isParagraphRtl(literalBulletCheckList))
+        assertTrue("Literal bullet formula should be RTL", TextRepairProcessor.isParagraphRtl(literalBulletFormula))
+        assertTrue("Formula W should be RTL", TextRepairProcessor.isParagraphRtl(formulaW))
+        assertTrue("Formula H should be RTL", TextRepairProcessor.isParagraphRtl(formulaH))
+        assertTrue("Formula A should be RTL", TextRepairProcessor.isParagraphRtl(formulaA))
+        assertTrue("Normal text with trailing LTR should be RTL", TextRepairProcessor.isParagraphRtl(normalTextWithEnglish))
+    }
+
+    @Test
     fun testExplicitParagraphDirectionOverrides() {
         // Text that would normally be RTL but is overridden to LTR with LRM
         val overriddenToLtr = "\u200Eاین متن با نشانگر چپ‌به‌راست شروع شده است."

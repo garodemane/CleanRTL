@@ -167,7 +167,7 @@ object HtmlExporter {
                     tag = "h3"
                     displayText = trimmed.substring(4)
                 }
-                trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
+                trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
                     tag = "li"
                     displayText = trimmed.substring(2)
                     isList = true

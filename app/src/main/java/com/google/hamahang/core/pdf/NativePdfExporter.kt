@@ -211,8 +211,8 @@ object NativePdfExporter {
                 displayText = trimmed.substring(4)
                 isHeader = true
             }
-            // 3. Bullet Lists (- or *)
-            else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+            // 3. Bullet Lists (- or * or •)
+            else if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {
                 displayText = "•  " + trimmed.substring(2)
                 isList = true
             }
