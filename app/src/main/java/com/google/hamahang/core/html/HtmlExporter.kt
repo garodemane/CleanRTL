@@ -148,6 +148,13 @@ object HtmlExporter {
                 }
             }
 
+            // 2. Horizontal Divider Line (--- or *** or ___)
+            if (trimmedClean == "---" || trimmedClean == "***" || trimmedClean == "___") {
+                htmlContent.append("<hr class='horizontal-divider'>\n")
+                idx++
+                continue
+            }
+
             // Determine tag type and direction
             var tag = "p"
             var displayText = paragraph
@@ -338,6 +345,12 @@ object HtmlExporter {
 
                     .spacer {
                         height: 12px;
+                    }
+
+                    hr.horizontal-divider {
+                        border: none;
+                        border-top: 1.5px solid var(--border-color, #E2E8F0);
+                        margin: 24px 0;
                     }
 
                     /* Premium Table Styles */
