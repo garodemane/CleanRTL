@@ -166,6 +166,7 @@ object NativePdfExporter {
                             pageWidth = pageWidth,
                             regularTypeface = regularTypeface,
                             boldTypeface = boldTypeface,
+                            isTableRtl = TextRepairProcessor.isParagraphRtl(cleanParagraph),
                             onNewPage = {
                                 pdfDocument.finishPage(currentPage)
                                 currentPageNumber++
@@ -421,6 +422,7 @@ object NativePdfExporter {
         pageWidth: Int,
         regularTypeface: Typeface,
         boldTypeface: Typeface,
+        isTableRtl: Boolean,
         onNewPage: () -> Canvas
     ): Float {
         var currentCanvas = canvas
@@ -526,7 +528,7 @@ object NativePdfExporter {
                 currentCanvas.save()
                 
                 // Calculate horizontal position
-                val cellX = margin + (colIdx * colWidth)
+                val cellX = margin + (if (isTableRtl) (colCount - 1 - colIdx) else colIdx) * colWidth
                 
                 // Draw text layout
                 val textWidth = cellLayout.getLineWidth(0)
