@@ -51,70 +51,21 @@ object TextRepairProcessor {
      * Determines whether a paragraph is directionally dominant RTL using standard UBA rules.
      */
     fun isParagraphRtl(text: String): Boolean {
-        var trimmedStr = text.trimStart()
+        val trimmedStr = text.trimStart()
         if (trimmedStr.startsWith("\u200F")) return true
         if (trimmedStr.startsWith("\u200E")) return false
 
-        // Clean out bidi isolate marks from the local copy to avoid interfering with prefix parsing
-        trimmedStr = trimmedStr.replace("\u2066", "").replace("\u2069", "")
-
-        // 1. Strip markdown checklist/list prefixes to scan the actual content direction
-        if (trimmedStr.startsWith("- [ ] ") || trimmedStr.startsWith("- [x] ") ||
-            trimmedStr.startsWith("- [ ]") || trimmedStr.startsWith("- [x]") ||
-            trimmedStr.startsWith("* [ ] ") || trimmedStr.startsWith("* [x] ") ||
-            trimmedStr.startsWith("* [ ]") || trimmedStr.startsWith("* [x]")
-        ) {
-            trimmedStr = trimmedStr.substring(5).trimStart()
-        } else if (trimmedStr.startsWith("[ ] ") || trimmedStr.startsWith("[x] ") ||
-                   trimmedStr.startsWith("[ ]") || trimmedStr.startsWith("[x]")
-        ) {
-            trimmedStr = trimmedStr.substring(3).trimStart()
-        } else if (trimmedStr.startsWith("- ") || trimmedStr.startsWith("* ")) {
-            trimmedStr = trimmedStr.substring(2).trimStart()
-        }
-
-        // 2. Strip numbered list prefix (e.g. "1. ", "12. ")
-        val numberedListMatch = Regex("^\\d+\\.\\s+(.*)").matchEntire(trimmedStr)
-        if (numberedListMatch != null) {
-            trimmedStr = numberedListMatch.groupValues[1]
-        }
-
-        // 3. Strip formula assignment prefix (e.g. "W = ", "H = ", "temp = ")
-        val formulaMatch = Regex("^[a-zA-Z_][a-zA-Z0-9_]*\\s*=\\s+(.*)").matchEntire(trimmedStr)
-        if (formulaMatch != null) {
-            trimmedStr = formulaMatch.groupValues[1]
-        }
-
+        // Count Persian/Arabic script characters
         var rtlCount = 0
-        var ltrCount = 0
-        var firstStrongCharIsRtl: Boolean? = null
-
-        for (char in trimmedStr) {
+        for (char in text) {
             val charStr = char.toString()
             if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
                 rtlCount++
-                if (firstStrongCharIsRtl == null) {
-                    firstStrongCharIsRtl = true
-                }
-            } else if (STRONG_LATIN_PATTERN.matcher(charStr).matches()) {
-                ltrCount++
-                if (firstStrongCharIsRtl == null) {
-                    firstStrongCharIsRtl = false
-                }
             }
         }
 
-        // If the first strong character is Persian, it is RTL
-        if (firstStrongCharIsRtl == true) {
-            return true
-        }
-
-        // Hybrid check: If there are Farsi characters and they represent at least 30% of alphabetical content
-        if (rtlCount > 0 && (rtlCount * 2.5 >= ltrCount)) {
-            return true
-        }
-
-        return false
+        // If there is at least one Persian/Arabic character, the paragraph is dominant RTL
+        return rtlCount > 0
     }
 
     /**

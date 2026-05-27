@@ -1218,9 +1218,7 @@ fun MarkdownParagraph(text: String, fontSize: androidx.compose.ui.unit.TextUnit)
 @Composable
 fun MarkdownDivider() {
     HorizontalDivider(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp),
+        modifier = Modifier.padding(vertical = 12.dp),
         thickness = 1.dp,
         color = MaterialTheme.colorScheme.outlineVariant
     )
