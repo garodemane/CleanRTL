@@ -1047,29 +1047,35 @@ fun MarkdownHeader(
 
 @Composable
 fun MarkdownListItem(text: String, fontSize: androidx.compose.ui.unit.TextUnit) {
+    val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp, horizontal = 8.dp),
-        verticalAlignment = Alignment.Top
+    CompositionLocalProvider(
+        LocalLayoutDirection provides (if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr)
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .padding(top = 8.dp, start = 4.dp, end = 8.dp)
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondary)
-        )
-        Text(
-            text = parseMarkdownInlineStyles(text, codeBgColor),
-            style = TextStyle(
-                fontSize = fontSize,
-                textAlign = TextAlign.Start,
-                color = MaterialTheme.colorScheme.onSurface
-            ),
-            modifier = Modifier.weight(1f)
-        )
+                .fillMaxWidth()
+                .padding(vertical = 4.dp, horizontal = 8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 8.dp, start = 4.dp, end = 8.dp)
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondary)
+            )
+            Text(
+                text = parseMarkdownInlineStyles(text, codeBgColor),
+                style = TextStyle(
+                    fontSize = fontSize,
+                    textAlign = TextAlign.Start,
+                    textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr,
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
@@ -1079,31 +1085,37 @@ fun MarkdownNumberedListItem(
     text: String,
     fontSize: androidx.compose.ui.unit.TextUnit
 ) {
+    val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp, horizontal = 8.dp),
-        verticalAlignment = Alignment.Top
+    CompositionLocalProvider(
+        LocalLayoutDirection provides (if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr)
     ) {
-        Text(
-            text = number,
-            style = TextStyle(
-                fontSize = fontSize,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.secondary
-            ),
-            modifier = Modifier.padding(end = 8.dp)
-        )
-        Text(
-            text = parseMarkdownInlineStyles(text, codeBgColor),
-            style = TextStyle(
-                fontSize = fontSize,
-                textAlign = TextAlign.Start,
-                color = MaterialTheme.colorScheme.onSurface
-            ),
-            modifier = Modifier.weight(1f)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp, horizontal = 8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Text(
+                text = number,
+                style = TextStyle(
+                    fontSize = fontSize,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.secondary
+                ),
+                modifier = Modifier.padding(end = 8.dp)
+            )
+            Text(
+                text = parseMarkdownInlineStyles(text, codeBgColor),
+                style = TextStyle(
+                    fontSize = fontSize,
+                    textAlign = TextAlign.Start,
+                    textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr,
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
