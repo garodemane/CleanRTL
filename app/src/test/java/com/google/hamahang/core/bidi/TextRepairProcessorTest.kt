@@ -112,6 +112,13 @@ class TextRepairProcessorTest {
         val formulaA = "A = سن بر حسب سال"
         val normalTextWithEnglish = "شما: 2847.5 کالری در روز TDEE"
 
+        // Wrapped in bidi isolate control characters by TextRepairProcessor.isolateLtrSubRuns
+        val checkListItemIsolated = "[\u2066x\u2069] کراتین مونوهیدرات — ۵ گرم روزانه"
+        val literalBulletCheckListIsolated = "• [\u2066x\u2069] کراتین مونوهیدرات — ۵ گرم روزانه"
+        val literalBulletCheckListDoubleSpaceIsolated = "•  [\u2066x\u2069] کراتین مونوهیدرات — ۵ گرم روزانه"
+        val formulaWIsolated = "\u2066W\u2069 = وزن بر حسب کیلوگرم"
+        val formulaWIsolatedWithBullet = "• \u2066W\u2069 = وزن بر حسب کیلوگرم"
+
         assertTrue("Checklist should be RTL", TextRepairProcessor.isParagraphRtl(checkListItem))
         assertTrue("Literal bullet checklist should be RTL", TextRepairProcessor.isParagraphRtl(literalBulletCheckList))
         assertTrue("Literal bullet formula should be RTL", TextRepairProcessor.isParagraphRtl(literalBulletFormula))
@@ -119,6 +126,13 @@ class TextRepairProcessorTest {
         assertTrue("Formula H should be RTL", TextRepairProcessor.isParagraphRtl(formulaH))
         assertTrue("Formula A should be RTL", TextRepairProcessor.isParagraphRtl(formulaA))
         assertTrue("Normal text with trailing LTR should be RTL", TextRepairProcessor.isParagraphRtl(normalTextWithEnglish))
+
+        // Assert isolated/formatted variants are correctly identified as RTL
+        assertTrue("Isolated checklist should be RTL", TextRepairProcessor.isParagraphRtl(checkListItemIsolated))
+        assertTrue("Isolated literal bullet checklist should be RTL", TextRepairProcessor.isParagraphRtl(literalBulletCheckListIsolated))
+        assertTrue("Isolated double spaced literal bullet checklist should be RTL", TextRepairProcessor.isParagraphRtl(literalBulletCheckListDoubleSpaceIsolated))
+        assertTrue("Isolated formula W should be RTL", TextRepairProcessor.isParagraphRtl(formulaWIsolated))
+        assertTrue("Isolated formula W with bullet should be RTL", TextRepairProcessor.isParagraphRtl(formulaWIsolatedWithBullet))
     }
 
     @Test

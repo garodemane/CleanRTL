@@ -51,41 +51,47 @@ object TextRepairProcessor {
      * Determines whether a paragraph is directionally dominant RTL using standard UBA rules.
      */
     fun isParagraphRtl(text: String): Boolean {
-        var trimmedStr = text.trimStart()
+        val trimmedStr = text.trimStart()
         if (trimmedStr.startsWith("\u200F")) return true
         if (trimmedStr.startsWith("\u200E")) return false
 
-        // 1. Strip markdown checklist/list prefixes to scan the actual content direction
-        if (trimmedStr.startsWith("- [ ] ") || trimmedStr.startsWith("- [x] ") ||
-            trimmedStr.startsWith("- [ ]") || trimmedStr.startsWith("- [x]") ||
-            trimmedStr.startsWith("* [ ] ") || trimmedStr.startsWith("* [x] ") ||
-            trimmedStr.startsWith("* [ ]") || trimmedStr.startsWith("* [x]") ||
-            trimmedStr.startsWith("• [ ] ") || trimmedStr.startsWith("• [x] ") ||
-            trimmedStr.startsWith("• [ ]") || trimmedStr.startsWith("• [x]")
-        ) {
-            trimmedStr = trimmedStr.substring(5).trimStart()
-        } else if (trimmedStr.startsWith("[ ] ") || trimmedStr.startsWith("[x] ") ||
-                   trimmedStr.startsWith("[ ]") || trimmedStr.startsWith("[x]")
-        ) {
-            trimmedStr = trimmedStr.substring(3).trimStart()
-        } else if (trimmedStr.startsWith("- ") || trimmedStr.startsWith("* ") || trimmedStr.startsWith("• ")) {
-            trimmedStr = trimmedStr.substring(2).trimStart()
+        // Strip bidi control characters for accurate directional and prefix analysis
+        var cleanStr = trimmedStr
+            .replace("\u2066", "")
+            .replace("\u2067", "")
+            .replace("\u2068", "")
+            .replace("\u2069", "")
+            .replace("\u200E", "")
+            .replace("\u200F", "")
+            .replace("\u200C", "")
+            .replace("\u200D", "")
+
+        // 1. Strip markdown checklist prefix (with or without bullet)
+        val checklistMatch = Regex("^([-*•]\\s*)?\\[[ xX]\\]\\s*(.*)").matchEntire(cleanStr)
+        if (checklistMatch != null) {
+            cleanStr = checklistMatch.groupValues[2].trimStart()
+        } else {
+            // 2. Strip simple bullet prefix if no checklist
+            val bulletMatch = Regex("^[-*•]\\s*(.*)").matchEntire(cleanStr)
+            if (bulletMatch != null) {
+                cleanStr = bulletMatch.groupValues[1].trimStart()
+            }
         }
 
-        // 2. Strip numbered list prefix (e.g. "1. ", "12. ")
-        val numberedListMatch = Regex("^\\d+\\.\\s+(.*)").matchEntire(trimmedStr)
+        // 3. Strip numbered list prefix (e.g. "1. ", "12. ")
+        val numberedListMatch = Regex("^\\d+\\.\\s+(.*)").matchEntire(cleanStr)
         if (numberedListMatch != null) {
-            trimmedStr = numberedListMatch.groupValues[1]
+            cleanStr = numberedListMatch.groupValues[1].trimStart()
         }
 
-        // 3. Strip formula assignment prefix (e.g. "W = ", "H = ", "temp = ")
-        val formulaMatch = Regex("^[a-zA-Z_][a-zA-Z0-9_]*\\s*=\\s+(.*)").matchEntire(trimmedStr)
+        // 4. Strip formula assignment prefix (e.g. "W = ", "H = ", "temp = ")
+        val formulaMatch = Regex("^[a-zA-Z_][a-zA-Z0-9_]*\\s*=\\s+(.*)").matchEntire(cleanStr)
         if (formulaMatch != null) {
-            trimmedStr = formulaMatch.groupValues[1]
+            cleanStr = formulaMatch.groupValues[1].trimStart()
         }
 
-        // 4. Resolve based on the first strong character (official Unicode Standard Annex #9)
-        for (char in trimmedStr) {
+        // 5. Resolve based on the first strong character (official Unicode Standard Annex #9)
+        for (char in cleanStr) {
             val charStr = char.toString()
             if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
                 return true
@@ -94,10 +100,10 @@ object TextRepairProcessor {
             }
         }
 
-        // 5. Fallback weight counting if no strong characters exist
+        // 6. Fallback weight counting if no strong characters exist
         var rtlCount = 0
         var ltrCount = 0
-        for (char in trimmedStr) {
+        for (char in cleanStr) {
             val charStr = char.toString()
             if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
                 rtlCount++
@@ -107,6 +113,7 @@ object TextRepairProcessor {
         }
         return rtlCount >= ltrCount
     }
+
 
     /**
      * Substitutes Arabic Yeh and Kaf characters with native Persian alternatives,
