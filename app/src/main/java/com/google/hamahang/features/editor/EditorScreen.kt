@@ -1004,6 +1004,9 @@ fun MarkdownPreviewPane(
                         val content = numberedListMatch.groupValues[2]
                         MarkdownNumberedListItem(number = number, text = bidiPrefix + content, fontSize = baseFontSize.sp)
                     }
+                    trimmed == "---" || trimmed == "***" || trimmed == "___" -> {
+                        MarkdownDivider()
+                    }
                     trimmed.startsWith("> ") || trimmed.startsWith(">") -> {
                         val blockquoteText = if (trimmed.startsWith("> ")) trimmed.substring(2) else trimmed.substring(1)
                         MarkdownBlockquote(text = bidiPrefix + blockquoteText, fontSize = (baseFontSize * 0.95).sp)
@@ -1212,6 +1215,15 @@ fun MarkdownParagraph(text: String, fontSize: androidx.compose.ui.unit.TextUnit)
     )
 }
 
+@Composable
+fun MarkdownDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(vertical = 12.dp),
+        thickness = 1.dp,
+        color = MaterialTheme.colorScheme.outlineVariant
+    )
+}
+
 enum class TableColumnAlignment {
     LEFT, CENTER, RIGHT
 }
@@ -1263,7 +1275,7 @@ fun TableCell(
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     
     val textAlign = when (alignment) {
-        TableColumnAlignment.LEFT -> TextAlign.Left
+        TableColumnAlignment.LEFT -> if (isRtl) TextAlign.Right else TextAlign.Left
         TableColumnAlignment.CENTER -> TextAlign.Center
         TableColumnAlignment.RIGHT -> TextAlign.Right
     }
@@ -1274,7 +1286,7 @@ fun TableCell(
         modifier = modifier
             .padding(horizontal = 6.dp),
         contentAlignment = when (alignment) {
-            TableColumnAlignment.LEFT -> Alignment.CenterStart
+            TableColumnAlignment.LEFT -> if (isRtl) Alignment.CenterEnd else Alignment.CenterStart
             TableColumnAlignment.CENTER -> Alignment.Center
             TableColumnAlignment.RIGHT -> Alignment.CenterEnd
         }
@@ -1301,6 +1313,8 @@ fun MarkdownTable(
     modifier: Modifier = Modifier
 ) {
     val outlineColor = MaterialTheme.colorScheme.outlineVariant
+    val isTableRtl = TextRepairProcessor.isParagraphRtl(headerColumns.firstOrNull() ?: "")
+    
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -1314,66 +1328,70 @@ fun MarkdownTable(
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
         ) {
-            Column {
-                // Table Header
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f))
-                        .padding(vertical = 12.dp, horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    headerColumns.forEachIndexed { colIdx, headerText ->
-                        val align = alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEFT
-                        TableCell(
-                            text = headerText,
-                            alignment = align,
-                            isHeader = true,
-                            baseFontSize = baseFontSize,
-                            modifier = Modifier.width(160.dp)
-                        )
-                    }
-                }
-                
-                // Border separator
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.5.dp)
-                        .background(outlineColor)
-                )
-                
-                // Data Rows
-                dataRows.forEachIndexed { rowIdx, rowCells ->
+            CompositionLocalProvider(
+                LocalLayoutDirection provides (if (isTableRtl) LayoutDirection.Rtl else LayoutDirection.Ltr)
+            ) {
+                Column {
+                    // Table Header
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(
-                                if (rowIdx % 2 == 0) MaterialTheme.colorScheme.surface
-                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
-                            )
-                            .padding(vertical = 10.dp, horizontal = 14.dp),
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f))
+                            .padding(vertical = 12.dp, horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        for (colIdx in headerColumns.indices) {
-                            val cellText = rowCells.getOrNull(colIdx) ?: ""
+                        headerColumns.forEachIndexed { colIdx, headerText ->
                             val align = alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEFT
                             TableCell(
-                                text = cellText,
+                                text = headerText,
                                 alignment = align,
-                                isHeader = false,
+                                isHeader = true,
                                 baseFontSize = baseFontSize,
                                 modifier = Modifier.width(160.dp)
                             )
                         }
                     }
-                    if (rowIdx < dataRows.size - 1) {
-                        Box(
+                    
+                    // Border separator
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.5.dp)
+                            .background(outlineColor)
+                    )
+                    
+                    // Data Rows
+                    dataRows.forEachIndexed { rowIdx, rowCells ->
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(1.dp)
-                                .background(outlineColor.copy(alpha = 0.5f))
-                        )
+                                .background(
+                                    if (rowIdx % 2 == 0) MaterialTheme.colorScheme.surface
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                )
+                                .padding(vertical = 10.dp, horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            for (colIdx in headerColumns.indices) {
+                                val cellText = rowCells.getOrNull(colIdx) ?: ""
+                                val align = alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEFT
+                                TableCell(
+                                    text = cellText,
+                                    alignment = align,
+                                    isHeader = false,
+                                    baseFontSize = baseFontSize,
+                                    modifier = Modifier.width(160.dp)
+                                )
+                            }
+                        }
+                        if (rowIdx < dataRows.size - 1) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.5.dp)
+                                    .background(outlineColor.copy(alpha = 0.5f))
+                            )
+                        }
                     }
                 }
             }
