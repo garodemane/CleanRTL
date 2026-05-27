@@ -183,6 +183,31 @@ object NativePdfExporter {
                 }
             }
 
+            // 2. Horizontal Divider Line (--- or *** or ___)
+            if (trimmedClean == "---" || trimmedClean == "***" || trimmedClean == "___") {
+                val dividerHeight = baseFontSize * 1.5f
+                if (yOffset + dividerHeight > pageHeight - margin) {
+                    pdfDocument.finishPage(currentPage)
+                    currentPageNumber++
+                    pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                    currentPage = pdfDocument.startPage(pageInfo)
+                    canvas = currentPage.canvas
+                    yOffset = margin
+                }
+
+                val linePaint = Paint().apply {
+                    color = Color.rgb(226, 228, 236)
+                    strokeWidth = 1.5f
+                    style = Paint.Style.STROKE
+                }
+                val lineY = yOffset + (dividerHeight / 2f)
+                canvas.drawLine(margin, lineY, margin + printableWidth, lineY, linePaint)
+
+                yOffset += dividerHeight
+                idx++
+                continue
+            }
+
             // Determine paragraph style and direction
             var currentTextSize = baseFontSize
             var currentTypeface = regularTypeface
