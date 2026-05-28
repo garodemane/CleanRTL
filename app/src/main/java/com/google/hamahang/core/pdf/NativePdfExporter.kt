@@ -56,7 +56,25 @@ object NativePdfExporter {
             typeface = regularTypeface
         }
 
-        val paragraphs = text.split("\n")
+        val rawParagraphs = text.split("\n")
+        val paragraphs = mutableListOf<String>()
+        val referenceMap = mutableMapOf<String, Pair<String, String?>>()
+
+        val refDefRegex = Regex("""^\s*\[([^\]]+)\]:\s*(\S+)(?:\s+["'(]([^"')]*)["'))]?)?\s*$""")
+
+        for (p in rawParagraphs) {
+            val cleanP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            val match = refDefRegex.matchEntire(cleanP)
+            if (match != null) {
+                val label = match.groupValues[1].trim().lowercase()
+                val url = match.groupValues[2].trim()
+                val titleVal = match.groupValues[3].trim().takeIf { it.isNotEmpty() }
+                referenceMap[label] = Pair(url, titleVal)
+            } else {
+                paragraphs.add(p)
+            }
+        }
+
         var currentPageNumber = 1
         var pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
         var currentPage = pdfDocument.startPage(pageInfo)
@@ -71,6 +89,7 @@ object NativePdfExporter {
         val mathBlockLines = mutableListOf<String>()
         var inMermaidBlock = false
         val mermaidBlockLines = mutableListOf<String>()
+        var inDetailsBlock = false
 
         var idx = 0
         while (idx < paragraphs.size) {
@@ -228,6 +247,104 @@ object NativePdfExporter {
             }
             val cleanParagraph = if (bidiPrefix.isNotEmpty()) paragraph.substring(1) else paragraph
             val trimmedClean = cleanParagraph.trim()
+
+            val cleanTrimmedLower = trimmedClean.lowercase()
+            if (cleanTrimmedLower.startsWith("<details") || cleanTrimmedLower.startsWith("<summary>") || cleanTrimmedLower == "</details>") {
+                if (cleanTrimmedLower.startsWith("<details")) {
+                    inDetailsBlock = true
+                    
+                    var summary = ""
+                    val summaryMatch = Regex("(?is)<summary>(.*?)</summary>").find(cleanParagraph)
+                    if (summaryMatch != null) {
+                        summary = summaryMatch.groupValues[1].trim()
+                    } else {
+                        // Check if the next line is a summary
+                        if (idx + 1 < paragraphs.size) {
+                            val nextLine = paragraphs[idx + 1].trim().replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+                            val nextLineLower = nextLine.lowercase()
+                            if (nextLineLower.startsWith("<summary>") && nextLineLower.endsWith("</summary>")) {
+                                summary = nextLine.substring(9, nextLine.length - 10).trim()
+                                idx++ // consume next line
+                            } else if (nextLineLower.startsWith("<summary>")) {
+                                val nextSummaryMatch = Regex("(?is)<summary>(.*?)</summary>").find(nextLine)
+                                if (nextSummaryMatch != null) {
+                                    summary = nextSummaryMatch.groupValues[1].trim()
+                                    idx++
+                                }
+                            }
+                        }
+                    }
+                    if (summary.isEmpty()) {
+                        summary = "Details"
+                    }
+
+                    // Render beautiful summary card header
+                    val summaryHeaderSpanned = parseMarkdownAndHtmlToSpannable(
+                        "▼  $summary",
+                        baseFontSize * 1.05f,
+                        boldTypeface,
+                        italicTypeface,
+                        referenceMap
+                    )
+                    
+                    val headerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                        textSize = baseFontSize * 1.05f
+                        typeface = boldTypeface
+                        color = Color.rgb(14, 132, 87) // Accent green color
+                    }
+
+                    val isHeaderRtl = TextRepairProcessor.isParagraphRtl(summary)
+                    val headerLayout = StaticLayout.Builder.obtain(
+                        summaryHeaderSpanned,
+                        0,
+                        summaryHeaderSpanned.length,
+                        headerPaint,
+                        (printableWidth - 24).toInt()
+                    )
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setTextDirection(if (isHeaderRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR)
+                    .build()
+
+                    val headerHeight = headerLayout.height + 16
+
+                    // Overflow check
+                    if (yOffset + headerHeight > pageHeight - margin) {
+                        pdfDocument.finishPage(currentPage)
+                        currentPageNumber++
+                        pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                        currentPage = pdfDocument.startPage(pageInfo)
+                        canvas = currentPage.canvas
+                        yOffset = margin
+                    }
+
+                    // Draw the summary header card
+                    val cardPaint = Paint().apply {
+                        color = Color.rgb(240, 244, 241) // Light gray-green
+                        style = Paint.Style.FILL
+                    }
+                    val borderPaint = Paint().apply {
+                        color = Color.rgb(200, 210, 202)
+                        strokeWidth = 1f
+                        style = Paint.Style.STROKE
+                    }
+
+                    val rect = android.graphics.RectF(margin, yOffset, margin + printableWidth, yOffset + headerHeight)
+                    canvas.drawRoundRect(rect, 8f, 8f, cardPaint)
+                    canvas.drawRoundRect(rect, 8f, 8f, borderPaint)
+
+                    canvas.save()
+                    canvas.translate(margin + 12f, yOffset + 8f)
+                    headerLayout.draw(canvas)
+                    canvas.restore()
+
+                    yOffset += headerHeight + baseFontSize * 0.5f
+                } else if (cleanTrimmedLower == "</details>") {
+                    inDetailsBlock = false
+                }
+                
+                idx++
+                continue
+            }
             
             val bidiChars = setOf(
                 '\u200E', '\u200F', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
@@ -427,7 +544,8 @@ object NativePdfExporter {
                 displayText,
                 currentTextSize,
                 boldTypeface,
-                italicTypeface
+                italicTypeface,
+                referenceMap
             )
 
             // Setup Paint
@@ -444,7 +562,8 @@ object NativePdfExporter {
 
             val quoteIndent = if (isQuote) quoteLevel * 8f + 12f else 0f
             val listIndent = listLevel * 16f
-            val indentMargin = if (isList) listIndent + 16f else listIndent
+            val detailsIndent = if (inDetailsBlock) 20f else 0f
+            val indentMargin = (if (isList) listIndent + 16f else listIndent) + detailsIndent
             val layoutWidth = (printableWidth - indentMargin - quoteIndent).toInt()
 
             val textLayout = StaticLayout.Builder.obtain(
@@ -476,6 +595,20 @@ object NativePdfExporter {
 
             canvas.save()
 
+            // Draw details block decorative vertical border line!
+            if (inDetailsBlock) {
+                val detailsBorderPaint = Paint().apply {
+                    color = Color.rgb(200, 210, 202) // Light gray-green
+                    strokeWidth = 2f
+                    style = Paint.Style.STROKE
+                }
+                if (isRtl) {
+                    canvas.drawLine(pageWidth - margin - 4f, yOffset, pageWidth - margin - 4f, yOffset + layoutHeight, detailsBorderPaint)
+                } else {
+                    canvas.drawLine(margin + 4f, yOffset, margin + 4f, yOffset + layoutHeight, detailsBorderPaint)
+                }
+            }
+
             // Draw Blockquote decorative border
             if (isQuote) {
                 val borderPaint = Paint().apply {
@@ -484,7 +617,7 @@ object NativePdfExporter {
                     style = Paint.Style.STROKE
                 }
                 for (i in 0 until quoteLevel) {
-                    val offset = i * 8f
+                    val offset = i * 8f + (if (inDetailsBlock) 20f else 0f)
                     if (isRtl) {
                         canvas.drawLine(pageWidth - margin - offset, yOffset, pageWidth - margin - offset, yOffset + layoutHeight, borderPaint)
                     } else {
@@ -888,8 +1021,68 @@ object NativePdfExporter {
         input: String,
         baseFontSize: Float,
         boldTypeface: Typeface,
-        italicTypeface: Typeface
+        italicTypeface: Typeface,
+        referenceMap: Map<String, Pair<String, String?>> = emptyMap()
     ): Spanned {
+        val escapeMap = listOf(
+            "\\\\" to "\uE000",
+            "\\`"  to "\uE001",
+            "\\*"  to "\uE002",
+            "\\_"  to "\uE003",
+            "\\{"  to "\uE004",
+            "\\}"  to "\uE005",
+            "\\["  to "\uE006",
+            "\\]"  to "\uE007",
+            "\\("  to "\uE008",
+            "\\)"  to "\uE009",
+            "\\#"  to "\uE00A",
+            "\\+"  to "\uE00B",
+            "\\-"  to "\uE00C",
+            "\\."  to "\uE00D",
+            "\\!"  to "\uE00E",
+            "\\|"  to "\uE00F",
+            "\\~"  to "\uE010"
+        )
+
+        fun encodeEscapes(str: String): String {
+            var r = str
+            for (pair in escapeMap) {
+                r = r.replace(pair.first, pair.second)
+            }
+            return r
+        }
+
+        fun decodeEscapesUnescaped(str: String): String {
+            var r = str
+            for (pair in escapeMap) {
+                val unescaped = pair.first.substring(1)
+                r = r.replace(pair.second, unescaped)
+            }
+            return r
+        }
+
+        fun decodeEscapesEscaped(str: String): String {
+            var r = str
+            for (pair in escapeMap) {
+                r = r.replace(pair.second, pair.first)
+            }
+            return r
+        }
+
+        fun decodeSpannable(sb: SpannableStringBuilder): Spanned {
+            val decodedText = decodeEscapesUnescaped(sb.toString())
+            val finalStr = SpannableStringBuilder(decodedText)
+            val spans = sb.getSpans(0, sb.length, Any::class.java)
+            for (span in spans) {
+                val start = sb.getSpanStart(span)
+                val end = sb.getSpanEnd(span)
+                val flags = sb.getSpanFlags(span)
+                finalStr.setSpan(span, start, end, flags)
+            }
+            return finalStr
+        }
+
+        val encodedInput = encodeEscapes(input)
         val builder = SpannableStringBuilder()
         var index = 0
 
@@ -918,14 +1111,13 @@ object NativePdfExporter {
             return clean
         }
 
-        // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
-        // Compiled with case insensitivity (?i) and dot matches all (?s), with explicit unicode spaces matching, attribute-flexible
-        val regex = Regex("(?is)(\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|\\[[^\\]]+?\\]\\([^\\)]+?\\)|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
-        val matches = regex.findAll(input)
+        // Match bold, italic, inline code, inline math, HTML span tags, HTML font tags, autolinks, auto-emails, kbd, reference links, line breaks
+        val regex = Regex("(?is)(\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|<kbd>.*?</kbd>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>)")
+        val matches = regex.findAll(encodedInput)
 
         for (match in matches) {
             if (match.range.first > index) {
-                builder.append(input.substring(index, match.range.first))
+                builder.append(encodedInput.substring(index, match.range.first))
             }
 
             val matchedText = match.value
@@ -935,32 +1127,53 @@ object NativePdfExporter {
                 matchedTextLower.startsWith("**") && matchedTextLower.endsWith("**") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
-                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
+                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
                     builder.setSpan(StyleSpan(Typeface.BOLD), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("__") && matchedTextLower.endsWith("__") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
-                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
+                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
                     builder.setSpan(StyleSpan(Typeface.BOLD), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("*") && matchedTextLower.endsWith("*") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
-                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
+                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
                     builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("_") && matchedTextLower.endsWith("_") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
-                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
+                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
                     builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("~~") && matchedTextLower.endsWith("~~") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
-                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
+                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
                     builder.setSpan(android.text.style.StrikethroughSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("[") && matchedTextLower.contains("][") -> {
+                    val refRegex = Regex("\\[([^\\]]+?)\\]\\[([^\\]]*?)\\]")
+                    val refMatch = refRegex.matchEntire(matchedTextClean)
+                    if (refMatch != null) {
+                        val linkText = refMatch.groupValues[1]
+                        val label = refMatch.groupValues[2].trim().lowercase().ifEmpty { linkText.trim().lowercase() }
+                        val decodedLabel = decodeEscapesUnescaped(label)
+                        val refVal = referenceMap[decodedLabel]
+                        if (refVal != null) {
+                            val start = builder.length
+                            builder.append(parseMarkdownAndHtmlToSpannable(linkText, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                            builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            builder.setSpan(android.text.style.URLSpan(refVal.first), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        } else {
+                            builder.append(matchedText)
+                        }
+                    } else {
+                        builder.append(matchedText)
+                    }
                 }
                 matchedTextLower.startsWith("[") && matchedTextLower.contains("](") -> {
                     val linkRegex = Regex("\\[([^\\]]+?)\\]\\(([^\\)]+?)\\)")
@@ -970,33 +1183,59 @@ object NativePdfExporter {
                         val rawUrl = linkMatch.groupValues[2]
                         val urlParts = rawUrl.trim().split(Regex("[\\s\\u00A0]+"))
                         val url = cleanQuotes(urlParts[0])
+                        val decodedUrl = decodeEscapesUnescaped(url)
                         
                         val start = builder.length
-                        builder.append(parseMarkdownAndHtmlToSpannable(linkText, baseFontSize, boldTypeface, italicTypeface))
+                        builder.append(parseMarkdownAndHtmlToSpannable(linkText, baseFontSize, boldTypeface, italicTypeface, referenceMap))
                         
                         builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        builder.setSpan(android.text.style.URLSpan(url), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(android.text.style.URLSpan(decodedUrl), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     } else {
                         builder.append(matchedText)
                     }
                 }
+                matchedTextLower.startsWith("<http") && matchedTextLower.endsWith(">") -> {
+                    val url = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                    val start = builder.length
+                    builder.append(url)
+                    builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.URLSpan(url), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<") && matchedTextLower.contains("@") && matchedTextLower.endsWith(">") -> {
+                    val email = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                    val start = builder.length
+                    builder.append(email)
+                    builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.URLSpan("mailto:$email"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<kbd>") && matchedTextLower.endsWith("</kbd>") -> {
+                    val keyText = matchedTextClean.substring(5, matchedTextClean.length - 6)
+                    val start = builder.length
+                    builder.append(" ${decodeEscapesUnescaped(keyText)} ")
+                    builder.setSpan(android.text.style.TypefaceSpan("monospace"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(StyleSpan(Typeface.BOLD), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(ForegroundColorSpan(Color.rgb(220, 100, 0)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) // Orange keycap text
+                    builder.setSpan(android.text.style.BackgroundColorSpan(Color.rgb(230, 230, 230)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) // Gray background keycap box
+                }
                 matchedTextLower.startsWith("`") && matchedTextLower.endsWith("`") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
-                    builder.append(content)
+                    builder.append(decodeEscapesEscaped(content))
                 }
                 matchedTextLower.startsWith("$$") && matchedTextLower.endsWith("$$") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
-                    builder.append(content)
+                    builder.append(decodeEscapesEscaped(content))
                     builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("$") && matchedTextLower.endsWith("$") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
-                    builder.append(content)
+                    builder.append(decodeEscapesEscaped(content))
                     builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
@@ -1023,7 +1262,7 @@ object NativePdfExporter {
                         }
 
                         val start = builder.length
-                        builder.append(parseMarkdownAndHtmlToSpannable(innerText, fontSizePx ?: baseFontSize, boldTypeface, italicTypeface))
+                        builder.append(parseMarkdownAndHtmlToSpannable(innerText, fontSizePx ?: baseFontSize, boldTypeface, italicTypeface, referenceMap))
 
                         if (color != null) {
                             builder.setSpan(ForegroundColorSpan(color!!), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -1075,7 +1314,7 @@ object NativePdfExporter {
                         }
 
                         val start = builder.length
-                        builder.append(parseMarkdownAndHtmlToSpannable(innerText, fontSizePx ?: baseFontSize, boldTypeface, italicTypeface))
+                        builder.append(parseMarkdownAndHtmlToSpannable(innerText, fontSizePx ?: baseFontSize, boldTypeface, italicTypeface, referenceMap))
 
                         if (color != null) {
                             builder.setSpan(ForegroundColorSpan(color!!), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -1094,6 +1333,9 @@ object NativePdfExporter {
                         builder.append(matchedText)
                     }
                 }
+                matchedTextLower.startsWith("<br") -> {
+                    builder.append("\n")
+                }
                 else -> {
                     builder.append(matchedText)
                 }
@@ -1101,11 +1343,11 @@ object NativePdfExporter {
             index = match.range.last + 1
         }
 
-        if (index < input.length) {
-            builder.append(input.substring(index))
+        if (index < encodedInput.length) {
+            builder.append(encodedInput.substring(index))
         }
 
-        return builder
+        return decodeSpannable(builder)
     }
 
     private fun parseHtmlColorToInt(colorStr: String): Int? {

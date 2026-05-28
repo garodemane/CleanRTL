@@ -3,6 +3,7 @@ package com.google.hamahang.features.editor
 import android.os.Environment
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -977,245 +978,379 @@ fun MarkdownPreviewPane(
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            val paragraphs = text.split("\n")
-            var inCodeBlock = false
-            val codeLines = mutableListOf<String>()
-            var inMathBlock = false
-            val mathLines = mutableListOf<String>()
-            var inMermaidBlock = false
-            val mermaidLines = mutableListOf<String>()
+            MarkdownPreviewPaneContents(
+                text = text,
+                baseFontSize = baseFontSize,
+                uiFontScale = uiFontScale
+            )
+        }
+    }
+}
 
-            var idx = 0
-            while (idx < paragraphs.size) {
-                val paragraph = paragraphs[idx]
+@Composable
+fun MarkdownPreviewPaneContents(
+    text: String,
+    baseFontSize: Int,
+    uiFontScale: Float
+) {
+    val rawParagraphs = text.split("\n")
+    val paragraphs = mutableListOf<String>()
+    val referenceMap = mutableMapOf<String, Pair<String, String?>>()
 
-                if (inMermaidBlock) {
-                    val cleanTrimmed = paragraph.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
-                    if (cleanTrimmed.startsWith("```")) {
-                        val fullMermaid = mermaidLines.joinToString("\n")
-                        ComposeMermaidBlock(code = fullMermaid)
-                        mermaidLines.clear()
-                        inMermaidBlock = false
-                    } else {
-                        mermaidLines.add(paragraph)
-                    }
-                    idx++
-                    continue
+    val refDefRegex = Regex("""^\s*\[([^\]]+)\]:\s*(\S+)(?:\s+["'(]([^"')]*)["'))]?)?\s*$""")
+
+    for (p in rawParagraphs) {
+        val cleanP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+        val match = refDefRegex.matchEntire(cleanP)
+        if (match != null) {
+            val label = match.groupValues[1].trim().lowercase()
+            val url = match.groupValues[2].trim()
+            val title = match.groupValues[3].trim().takeIf { it.isNotEmpty() }
+            referenceMap[label] = Pair(url, title)
+        } else {
+            paragraphs.add(p)
+        }
+    }
+
+    var inCodeBlock = false
+    val codeLines = mutableListOf<String>()
+    var inMathBlock = false
+    val mathLines = mutableListOf<String>()
+    var inMermaidBlock = false
+    val mermaidLines = mutableListOf<String>()
+    var inDetailsBlock = false
+    val detailsLines = mutableListOf<String>()
+
+    var idx = 0
+    while (idx < paragraphs.size) {
+        val paragraph = paragraphs[idx]
+
+        if (inDetailsBlock) {
+            val cleanTrimmed = paragraph.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            if (cleanTrimmed.lowercase() == "</details>") {
+                val fullContent = detailsLines.joinToString("\n")
+                var summaryText = "Details"
+                var contentText = fullContent
+                val summaryRegex = Regex("(?is)<summary>(.*?)</summary>")
+                val summaryMatch = summaryRegex.find(fullContent)
+                if (summaryMatch != null) {
+                    summaryText = summaryMatch.groupValues[1].trim()
+                    contentText = fullContent.replace(summaryMatch.value, "").trim()
                 }
-
-                if (inMathBlock) {
-                    val trimmed = paragraph.trim()
-                    val cleanTrimmed = trimmed
-                        .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
-                        .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
-                        .trim()
-                    if (cleanTrimmed.endsWith("$$")) {
-                        val cleanLine = cleanTrimmed.removeSuffix("$$")
-                        if (cleanLine.isNotEmpty()) {
-                            mathLines.add(cleanLine)
-                        }
-                        val fullFormula = mathLines.joinToString("\n")
-                        ComposeMathBlock(formula = fullFormula, fontSize = (baseFontSize * 1.1).sp)
-                        mathLines.clear()
-                        inMathBlock = false
-                    } else {
-                        mathLines.add(paragraph)
-                    }
-                    idx++
-                    continue
-                }
-
-                if (inCodeBlock) {
-                    val cleanTrimmed = paragraph.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
-                    if (cleanTrimmed.startsWith("```")) {
-                        ComposeCodeBlock(lines = codeLines, fontSize = (baseFontSize * 0.85).sp)
-                        codeLines.clear()
-                        inCodeBlock = false
-                    } else {
-                        codeLines.add(paragraph)
-                    }
-                    idx++
-                    continue
-                }
-
-                if (paragraph.isBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    idx++
-                    continue
-                }
-
-                // Extract bidi override mark if present at the start of the paragraph
-                val bidiPrefix = when {
-                    paragraph.startsWith("\u200F") -> "\u200F"
-                    paragraph.startsWith("\u200E") -> "\u200E"
-                    else -> ""
-                }
-                val cleanParagraph = if (bidiPrefix.isNotEmpty()) paragraph.substring(1) else paragraph
-                val trimmed = cleanParagraph.trim()
-                
-                val bidiChars = setOf(
-                    '\u200E', '\u200F', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
-                    '\u2066', '\u2067', '\u2068', '\u2069', '\u200C', '\u200D'
+                MarkdownDetailsBlock(
+                    summaryText = summaryText,
+                    contentText = contentText,
+                    baseFontSize = baseFontSize,
+                    uiFontScale = uiFontScale
                 )
-                var indentCount = 0
-                for (char in cleanParagraph) {
-                    if (char == ' ') {
-                        indentCount++
-                    } else if (char == '\t') {
-                        indentCount += 4
-                    } else if (char in bidiChars) {
-                        continue
-                    } else {
-                        break
-                    }
-                }
-                val listLevel = indentCount / 2
-
-
-                // Robustly strip any leading/trailing bidi control characters for math block checks
-                val cleanTrimmed = trimmed
-                    .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
-                    .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
-                    .trim()
-
-                // Check if this line starts a math block
-                if (cleanTrimmed.startsWith("$$")) {
-                    if (cleanTrimmed.endsWith("$$") && cleanTrimmed.length > 2) {
-                        val cleanFormula = cleanTrimmed.removePrefix("$$").removeSuffix("$$").trim()
-                        ComposeMathBlock(formula = cleanFormula, fontSize = (baseFontSize * 1.1).sp)
-                    } else {
-                        inMathBlock = true
-                        val cleanLine = cleanTrimmed.removePrefix("$$")
-                        if (cleanLine.isNotEmpty()) {
-                            mathLines.add(cleanLine)
-                        }
-                    }
-                    idx++
-                    continue
-                }
-
-                // Check if this line starts a table
-                if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
-                    if (idx + 1 < paragraphs.size) {
-                        val nextLine = paragraphs[idx + 1]
-                        val nextBidiPrefix = when {
-                            nextLine.startsWith("\u200F") -> "\u200F"
-                            nextLine.startsWith("\u200E") -> "\u200E"
-                            else -> ""
-                        }
-                        val nextClean = if (nextBidiPrefix.isNotEmpty()) nextLine.substring(1) else nextLine
-                        val nextTrimmed = nextClean.trim()
-                        
-                        if (isTableDivider(nextTrimmed)) {
-                            val headerCols = parseTableLine(cleanParagraph)
-                            val dividerCols = parseTableLine(nextTrimmed)
-                            val alignments = dividerCols.map { parseAlignment(it) }
-                            
-                            val dataRows = mutableListOf<List<String>>()
-                            var k = idx + 2
-                            while (k < paragraphs.size) {
-                                val rowLine = paragraphs[k]
-                                val rowBidiPrefix = when {
-                                    rowLine.startsWith("\u200F") -> "\u200F"
-                                    rowLine.startsWith("\u200E") -> "\u200E"
-                                    else -> ""
-                                }
-                                val rowClean = if (rowBidiPrefix.isNotEmpty()) rowLine.substring(1) else rowLine
-                                val rowTrimmed = rowClean.trim()
-                                
-                                if (rowTrimmed.startsWith("|") && rowTrimmed.endsWith("|") && !isTableDivider(rowTrimmed)) {
-                                    val cells = parseTableLine(rowClean)
-                                    dataRows.add(cells)
-                                    k++
-                                } else {
-                                    break
-                                }
-                            }
-                            
-                            MarkdownTable(
-                                headerColumns = headerCols,
-                                dataRows = dataRows,
-                                alignments = alignments,
-                                baseFontSize = baseFontSize
-                            )
-                            
-                            idx = k
-                            continue
-                        }
-                    }
-                }
-
-                val cleanBlockTrimmed = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
-                if (cleanBlockTrimmed.startsWith("```")) {
-                    val rawLang = cleanBlockTrimmed.substring(3).trim().lowercase()
-                    val lang = rawLang.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-                    if (lang == "mermaid") {
-                        inMermaidBlock = true
-                    } else {
-                        inCodeBlock = true
-                    }
-                    idx++
-                    continue
-                }
-
-                val numberedListMatch = Regex("^(([a-zA-Z0-9]+)\\.)\\s+(.*)").matchEntire(trimmed)
-
-                when {
-                    trimmed.startsWith("# ") -> {
-                        MarkdownHeader(text = bidiPrefix + trimmed.substring(2), size = (baseFontSize * 1.5).sp, weight = FontWeight.Bold)
-                    }
-                    trimmed.startsWith("## ") -> {
-                        MarkdownHeader(text = bidiPrefix + trimmed.substring(3), size = (baseFontSize * 1.3).sp, weight = FontWeight.Bold)
-                    }
-                    trimmed.startsWith("### ") -> {
-                        MarkdownHeader(text = bidiPrefix + trimmed.substring(4), size = (baseFontSize * 1.15).sp, weight = FontWeight.Bold)
-                    }
-                    trimmed.startsWith("#### ") -> {
-                        MarkdownHeader(text = bidiPrefix + trimmed.substring(5), size = (baseFontSize * 1.05).sp, weight = FontWeight.Bold)
-                    }
-                    trimmed.startsWith("##### ") -> {
-                        MarkdownHeader(text = bidiPrefix + trimmed.substring(6), size = (baseFontSize * 0.95).sp, weight = FontWeight.Bold)
-                    }
-                    trimmed.startsWith("###### ") -> {
-                        MarkdownHeader(text = bidiPrefix + trimmed.substring(7), size = (baseFontSize * 0.85).sp, weight = FontWeight.Bold)
-                    }
-                    trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
-                        MarkdownListItem(text = bidiPrefix + trimmed.substring(2), fontSize = baseFontSize.sp, level = listLevel)
-                    }
-                    numberedListMatch != null -> {
-                        val number = numberedListMatch.groupValues[1]
-                        val content = numberedListMatch.groupValues[3]
-                        MarkdownNumberedListItem(number = number, text = bidiPrefix + content, fontSize = baseFontSize.sp, level = listLevel)
-                    }
-                    trimmed == "---" || trimmed == "***" || trimmed == "___" -> {
-                        MarkdownDivider()
-                    }
-                    trimmed.startsWith(">") -> {
-                        var quoteLevel = 0
-                        var tempStr = trimmed
-                        while (tempStr.startsWith(">")) {
-                            quoteLevel++
-                            tempStr = tempStr.substring(1).trim()
-                        }
-                        MarkdownBlockquote(text = bidiPrefix + tempStr, fontSize = (baseFontSize * 0.95).sp, level = quoteLevel)
-                    }
-                    else -> {
-                        MarkdownParagraph(text = bidiPrefix + cleanParagraph, fontSize = baseFontSize.sp)
-                    }
-                }
-                idx++
+                detailsLines.clear()
+                inDetailsBlock = false
+            } else {
+                detailsLines.add(paragraph)
             }
+            idx++
+            continue
+        }
 
-            if (inCodeBlock && codeLines.isNotEmpty()) {
-                ComposeCodeBlock(lines = codeLines, fontSize = (baseFontSize * 0.85).sp)
-            }
-            if (inMathBlock && mathLines.isNotEmpty()) {
-                val fullFormula = mathLines.joinToString("\n")
-                ComposeMathBlock(formula = fullFormula, fontSize = (baseFontSize * 1.1).sp)
-            }
-            if (inMermaidBlock && mermaidLines.isNotEmpty()) {
+        if (inMermaidBlock) {
+            val cleanTrimmed = paragraph.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            if (cleanTrimmed.startsWith("```")) {
                 val fullMermaid = mermaidLines.joinToString("\n")
                 ComposeMermaidBlock(code = fullMermaid)
+                mermaidLines.clear()
+                inMermaidBlock = false
+            } else {
+                mermaidLines.add(paragraph)
+            }
+            idx++
+            continue
+        }
+
+        if (inMathBlock) {
+            val trimmed = paragraph.trim()
+            val cleanTrimmed = trimmed
+                .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
+                .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                .trim()
+            if (cleanTrimmed.endsWith("$$")) {
+                val cleanLine = cleanTrimmed.removeSuffix("$$")
+                if (cleanLine.isNotEmpty()) {
+                    mathLines.add(cleanLine)
+                }
+                val fullFormula = mathLines.joinToString("\n")
+                ComposeMathBlock(formula = fullFormula, fontSize = (baseFontSize * 1.1).sp)
+                mathLines.clear()
+                inMathBlock = false
+            } else {
+                mathLines.add(paragraph)
+            }
+            idx++
+            continue
+        }
+
+        if (inCodeBlock) {
+            val cleanTrimmed = paragraph.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            if (cleanTrimmed.startsWith("```")) {
+                ComposeCodeBlock(lines = codeLines, fontSize = (baseFontSize * 0.85).sp)
+                codeLines.clear()
+                inCodeBlock = false
+            } else {
+                codeLines.add(paragraph)
+            }
+            idx++
+            continue
+        }
+
+        if (paragraph.isBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            idx++
+            continue
+        }
+
+        // Extract bidi override mark if present at the start of the paragraph
+        val bidiPrefix = when {
+            paragraph.startsWith("\u200F") -> "\u200F"
+            paragraph.startsWith("\u200E") -> "\u200E"
+            else -> ""
+        }
+        val cleanParagraph = if (bidiPrefix.isNotEmpty()) paragraph.substring(1) else paragraph
+        val trimmed = cleanParagraph.trim()
+        
+        val bidiChars = setOf(
+            '\u200E', '\u200F', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
+            '\u2066', '\u2067', '\u2068', '\u2069', '\u200C', '\u200D'
+        )
+        var indentCount = 0
+        for (char in cleanParagraph) {
+            if (char == ' ') {
+                indentCount++
+            } else if (char == '\t') {
+                indentCount += 4
+            } else if (char in bidiChars) {
+                continue
+            } else {
+                break
+            }
+        }
+        val listLevel = indentCount / 2
+
+        // Robustly strip any leading/trailing bidi control characters for math block checks
+        val cleanTrimmed = trimmed
+            .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
+            .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
+            .trim()
+
+        val cleanTrimmedLower = cleanTrimmed.lowercase()
+        if (cleanTrimmedLower.startsWith("<details")) {
+            inDetailsBlock = true
+            idx++
+            continue
+        }
+
+        // Check if this line starts a math block
+        if (cleanTrimmed.startsWith("$$")) {
+            if (cleanTrimmed.endsWith("$$") && cleanTrimmed.length > 2) {
+                val cleanFormula = cleanTrimmed.removePrefix("$$").removeSuffix("$$").trim()
+                ComposeMathBlock(formula = cleanFormula, fontSize = (baseFontSize * 1.1).sp)
+            } else {
+                inMathBlock = true
+                val cleanLine = cleanTrimmed.removePrefix("$$")
+                if (cleanLine.isNotEmpty()) {
+                    mathLines.add(cleanLine)
+                }
+            }
+            idx++
+            continue
+        }
+
+        // Check if this line starts a table
+        if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+            if (idx + 1 < paragraphs.size) {
+                val nextLine = paragraphs[idx + 1]
+                val nextBidiPrefix = when {
+                    nextLine.startsWith("\u200F") -> "\u200F"
+                    nextLine.startsWith("\u200E") -> "\u200E"
+                    else -> ""
+                }
+                val nextClean = if (nextBidiPrefix.isNotEmpty()) nextLine.substring(1) else nextLine
+                val nextTrimmed = nextClean.trim()
+                
+                if (isTableDivider(nextTrimmed)) {
+                    val headerCols = parseTableLine(cleanParagraph)
+                    val dividerCols = parseTableLine(nextTrimmed)
+                    val alignments = dividerCols.map { parseAlignment(it) }
+                    
+                    val dataRows = mutableListOf<List<String>>()
+                    var k = idx + 2
+                    while (k < paragraphs.size) {
+                        val rowLine = paragraphs[k]
+                        val rowBidiPrefix = when {
+                            rowLine.startsWith("\u200F") -> "\u200F"
+                            rowLine.startsWith("\u200E") -> "\u200E"
+                            else -> ""
+                        }
+                        val rowClean = if (rowBidiPrefix.isNotEmpty()) rowLine.substring(1) else rowLine
+                        val rowTrimmed = rowClean.trim()
+                        
+                        if (rowTrimmed.startsWith("|") && rowTrimmed.endsWith("|") && !isTableDivider(rowTrimmed)) {
+                            val cells = parseTableLine(rowClean)
+                            dataRows.add(cells)
+                            k++
+                        } else {
+                            break
+                        }
+                    }
+                    
+                    MarkdownTable(
+                        headerColumns = headerCols,
+                        dataRows = dataRows,
+                        alignments = alignments,
+                        baseFontSize = baseFontSize
+                    )
+                    
+                    idx = k
+                    continue
+                }
+            }
+        }
+
+        val cleanBlockTrimmed = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+        if (cleanBlockTrimmed.startsWith("```")) {
+            val rawLang = cleanBlockTrimmed.substring(3).trim().lowercase()
+            val lang = rawLang.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            if (lang == "mermaid") {
+                inMermaidBlock = true
+            } else {
+                inCodeBlock = true
+            }
+            idx++
+            continue
+        }
+
+        val numberedListMatch = Regex("^(([a-zA-Z0-9]+)\\.)\\s+(.*)").matchEntire(trimmed)
+
+        when {
+            trimmed.startsWith("# ") -> {
+                MarkdownHeader(text = bidiPrefix + trimmed.substring(2), size = (baseFontSize * 1.5).sp, weight = FontWeight.Bold, referenceMap = referenceMap)
+            }
+            trimmed.startsWith("## ") -> {
+                MarkdownHeader(text = bidiPrefix + trimmed.substring(3), size = (baseFontSize * 1.3).sp, weight = FontWeight.Bold, referenceMap = referenceMap)
+            }
+            trimmed.startsWith("### ") -> {
+                MarkdownHeader(text = bidiPrefix + trimmed.substring(4), size = (baseFontSize * 1.15).sp, weight = FontWeight.Bold, referenceMap = referenceMap)
+            }
+            trimmed.startsWith("#### ") -> {
+                MarkdownHeader(text = bidiPrefix + trimmed.substring(5), size = (baseFontSize * 1.05).sp, weight = FontWeight.Bold, referenceMap = referenceMap)
+            }
+            trimmed.startsWith("##### ") -> {
+                MarkdownHeader(text = bidiPrefix + trimmed.substring(6), size = (baseFontSize * 0.95).sp, weight = FontWeight.Bold, referenceMap = referenceMap)
+            }
+            trimmed.startsWith("###### ") -> {
+                MarkdownHeader(text = bidiPrefix + trimmed.substring(7), size = (baseFontSize * 0.85).sp, weight = FontWeight.Bold, referenceMap = referenceMap)
+            }
+            trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
+                MarkdownListItem(text = bidiPrefix + trimmed.substring(2), fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+            }
+            numberedListMatch != null -> {
+                val number = numberedListMatch.groupValues[1]
+                val content = numberedListMatch.groupValues[3]
+                MarkdownNumberedListItem(number = number, text = bidiPrefix + content, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+            }
+            trimmed == "---" || trimmed == "***" || trimmed == "___" -> {
+                MarkdownDivider()
+            }
+            trimmed.startsWith(">") -> {
+                var quoteLevel = 0
+                var tempStr = trimmed
+                while (tempStr.startsWith(">")) {
+                    quoteLevel++
+                    tempStr = tempStr.substring(1).trim()
+                }
+                MarkdownBlockquote(text = bidiPrefix + tempStr, fontSize = (baseFontSize * 0.95).sp, level = quoteLevel, referenceMap = referenceMap)
+            }
+            else -> {
+                val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
+                val resolvedText = parseMarkdownInlineStyles(bidiPrefix + cleanParagraph, codeBgColor, referenceMap)
+                val isRtl = TextRepairProcessor.isParagraphRtl(cleanParagraph)
+                
+                Text(
+                    text = resolvedText,
+                    style = TextStyle(
+                        fontSize = baseFontSize.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Start,
+                        textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                )
+            }
+        }
+        idx++
+    }
+
+    if (inCodeBlock && codeLines.isNotEmpty()) {
+        ComposeCodeBlock(lines = codeLines, fontSize = (baseFontSize * 0.85).sp)
+    }
+    if (inMathBlock && mathLines.isNotEmpty()) {
+        val fullFormula = mathLines.joinToString("\n")
+        ComposeMathBlock(formula = fullFormula, fontSize = (baseFontSize * 1.1).sp)
+    }
+    if (inMermaidBlock && mermaidLines.isNotEmpty()) {
+        val fullMermaid = mermaidLines.joinToString("\n")
+        ComposeMermaidBlock(code = fullMermaid)
+    }
+}
+
+@Composable
+fun MarkdownDetailsBlock(
+    summaryText: String,
+    contentText: String,
+    baseFontSize: Int,
+    uiFontScale: Float
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+        ),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val styledSummary = parseMarkdownInlineStyles(summaryText, MaterialTheme.colorScheme.surfaceVariant)
+                Text(
+                    text = styledSummary,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = (baseFontSize * 1.0).sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            if (expanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+                MarkdownPreviewPaneContents(
+                    text = contentText,
+                    baseFontSize = baseFontSize,
+                    uiFontScale = uiFontScale
+                )
             }
         }
     }
@@ -1225,12 +1360,13 @@ fun MarkdownPreviewPane(
 fun MarkdownHeader(
     text: String,
     size: androidx.compose.ui.unit.TextUnit,
-    weight: FontWeight
+    weight: FontWeight,
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap()
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
     Text(
-        text = parseMarkdownInlineStyles(text, codeBgColor),
+        text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
         style = TextStyle(
             fontSize = size,
             fontWeight = weight,
@@ -1245,7 +1381,12 @@ fun MarkdownHeader(
 }
 
 @Composable
-fun MarkdownListItem(text: String, fontSize: androidx.compose.ui.unit.TextUnit, level: Int = 0) {
+fun MarkdownListItem(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    level: Int = 0,
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap()
+) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
     CompositionLocalProvider(
@@ -1286,7 +1427,7 @@ fun MarkdownListItem(text: String, fontSize: androidx.compose.ui.unit.TextUnit, 
                 }
             }
             Text(
-                text = parseMarkdownInlineStyles(text, codeBgColor),
+                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
                 style = TextStyle(
                     fontSize = fontSize,
                     textAlign = TextAlign.Start,
@@ -1304,7 +1445,8 @@ fun MarkdownNumberedListItem(
     number: String,
     text: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
-    level: Int = 0
+    level: Int = 0,
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap()
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
@@ -1328,7 +1470,7 @@ fun MarkdownNumberedListItem(
                 modifier = Modifier.padding(end = 8.dp)
             )
             Text(
-                text = parseMarkdownInlineStyles(text, codeBgColor),
+                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
                 style = TextStyle(
                     fontSize = fontSize,
                     textAlign = TextAlign.Start,
@@ -1342,7 +1484,12 @@ fun MarkdownNumberedListItem(
 }
 
 @Composable
-fun MarkdownBlockquote(text: String, fontSize: androidx.compose.ui.unit.TextUnit, level: Int = 1) {
+fun MarkdownBlockquote(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    level: Int = 1,
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap()
+) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
     CompositionLocalProvider(
@@ -1369,7 +1516,7 @@ fun MarkdownBlockquote(text: String, fontSize: androidx.compose.ui.unit.TextUnit
             }
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                text = parseMarkdownInlineStyles(text, codeBgColor),
+                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
                 style = TextStyle(
                     fontSize = fontSize,
                     fontStyle = FontStyle.Italic,
@@ -2139,7 +2286,61 @@ fun EditorPane(
     }
 }
 
-fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedString {
+fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: Map<String, Pair<String, String?>> = emptyMap()): AnnotatedString {
+    val escapeMap = listOf(
+        "\\\\" to "\uE000",
+        "\\`"  to "\uE001",
+        "\\*"  to "\uE002",
+        "\\_"  to "\uE003",
+        "\\{"  to "\uE004",
+        "\\}"  to "\uE005",
+        "\\["  to "\uE006",
+        "\\]"  to "\uE007",
+        "\\("  to "\uE008",
+        "\\)"  to "\uE009",
+        "\\#"  to "\uE00A",
+        "\\+"  to "\uE00B",
+        "\\-"  to "\uE00C",
+        "\\."  to "\uE00D",
+        "\\!"  to "\uE00E",
+        "\\|"  to "\uE00F",
+        "\\~"  to "\uE010"
+    )
+
+    fun encodeEscapes(str: String): String {
+        var res = str
+        for (pair in escapeMap) {
+            res = res.replace(pair.first, pair.second)
+        }
+        return res
+    }
+
+    fun decodeEscapesUnescaped(str: String): String {
+        var res = str
+        for (pair in escapeMap) {
+            val unescaped = pair.first.substring(1)
+            res = res.replace(pair.second, unescaped)
+        }
+        return res
+    }
+
+    fun decodeEscapesEscaped(str: String): String {
+        var res = str
+        for (pair in escapeMap) {
+            res = res.replace(pair.second, pair.first)
+        }
+        return res
+    }
+
+    fun decodeAnnotatedString(annotated: AnnotatedString): AnnotatedString {
+        val decodedText = decodeEscapesUnescaped(annotated.text)
+        return AnnotatedString(
+            text = decodedText,
+            spanStyles = annotated.spanStyles
+        )
+    }
+
+    val encodedInput = encodeEscapes(input)
     val builder = AnnotatedString.Builder()
     var index = 0
 
@@ -2168,14 +2369,18 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
         return clean
     }
 
-    // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
-    // Compiled with case insensitivity (?i) and dot matches all (?s), with explicit unicode spaces matching, attribute-flexible
-    val regex = Regex("(?is)(\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|\\[[^\\]]+?\\]\\([^\\)]+?\\)|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
-    val matches = regex.findAll(input)
+    fun stripMarkdownEscapes(text: String): String {
+        val escapeRegex = Regex("""\\([\\`*_{}\[\]()#+\-.!|])""")
+        return text.replace(escapeRegex, "$1")
+    }
+
+    // Match bold, italic, inline code, inline math, HTML span tags, HTML font tags, autolinks, auto-emails, kbd, reference links, line breaks
+    val regex = Regex("(?is)(\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|<kbd>.*?</kbd>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>)")
+    val matches = regex.findAll(encodedInput)
 
     for (match in matches) {
         if (match.range.first > index) {
-            builder.append(input.substring(index, match.range.first))
+            builder.append(encodedInput.substring(index, match.range.first))
         }
 
         val matchedText = match.value
@@ -2185,67 +2390,115 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
             matchedTextLower.startsWith("**") && matchedTextLower.endsWith("**") -> {
                 builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
                 val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
-                builder.append(parseMarkdownInlineStyles(content, codeBgColor))
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
             }
             matchedTextLower.startsWith("__") && matchedTextLower.endsWith("__") -> {
                 builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
                 val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
-                builder.append(parseMarkdownInlineStyles(content, codeBgColor))
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
             }
             matchedTextLower.startsWith("*") && matchedTextLower.endsWith("*") -> {
                 builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
-                builder.append(parseMarkdownInlineStyles(content, codeBgColor))
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
             }
             matchedTextLower.startsWith("_") && matchedTextLower.endsWith("_") -> {
                 builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
-                builder.append(parseMarkdownInlineStyles(content, codeBgColor))
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
             }
             matchedTextLower.startsWith("~~") && matchedTextLower.endsWith("~~") -> {
                 builder.pushStyle(SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough))
                 val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
-                builder.append(parseMarkdownInlineStyles(content, codeBgColor))
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
+            }
+            matchedTextLower.startsWith("[") && matchedTextLower.contains("][") -> {
+                val refRegex = Regex("\\[([^\\]]+?)\\]\\[([^\\]]*?)\\]")
+                val refMatch = refRegex.matchEntire(matchedTextClean)
+                if (refMatch != null) {
+                    val linkText = refMatch.groupValues[1]
+                    val label = refMatch.groupValues[2].trim().lowercase().ifEmpty { linkText.trim().lowercase() }
+                    val decodedLabel = decodeEscapesUnescaped(label)
+                    val refVal = referenceMap[decodedLabel]
+                    if (refVal != null) {
+                        builder.pushStyle(SpanStyle(
+                            color = Color(0xFF0E8457), // Accent green link color
+                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                        ))
+                        builder.append(parseMarkdownInlineStyles(linkText, codeBgColor, referenceMap))
+                        builder.pop()
+                    } else {
+                        builder.append(matchedText)
+                    }
+                } else {
+                    builder.append(matchedText)
+                }
             }
             matchedTextLower.startsWith("[") && matchedTextLower.contains("](") -> {
                 val linkRegex = Regex("\\[([^\\]]+?)\\]\\(([^\\)]+?)\\)")
                 val linkMatch = linkRegex.matchEntire(matchedTextClean)
                 if (linkMatch != null) {
                     val linkText = linkMatch.groupValues[1]
-                    val rawUrl = linkMatch.groupValues[2]
-                    val urlParts = rawUrl.trim().split(Regex("[\\s\\u00A0]+"))
-                    
                     builder.pushStyle(SpanStyle(
                         color = Color(0xFF0E8457), // Accent green link color
                         textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
                     ))
-                    builder.append(parseMarkdownInlineStyles(linkText, codeBgColor))
+                    builder.append(parseMarkdownInlineStyles(linkText, codeBgColor, referenceMap))
                     builder.pop()
                 } else {
                     builder.append(matchedText)
                 }
             }
+            matchedTextLower.startsWith("<http") && matchedTextLower.endsWith(">") -> {
+                val url = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                builder.pushStyle(SpanStyle(
+                    color = Color(0xFF0E8457), // Accent green link color
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                ))
+                builder.append(url)
+                builder.pop()
+            }
+            matchedTextLower.startsWith("<") && matchedTextLower.contains("@") && matchedTextLower.endsWith(">") -> {
+                val email = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                builder.pushStyle(SpanStyle(
+                    color = Color(0xFF0E8457), // Accent green link color
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                ))
+                builder.append(email)
+                builder.pop()
+            }
+            matchedTextLower.startsWith("<kbd>") && matchedTextLower.endsWith("</kbd>") -> {
+                val keyText = matchedTextClean.substring(5, matchedTextClean.length - 6)
+                builder.pushStyle(SpanStyle(
+                    fontFamily = FontFamily.Monospace,
+                    background = codeBgColor.copy(alpha = 0.8f),
+                    color = Color(0xFFFFA726), // Premium highlighted color
+                    fontWeight = FontWeight.Bold
+                ))
+                builder.append(" ${decodeEscapesUnescaped(keyText)} ")
+                builder.pop()
+            }
             matchedTextLower.startsWith("`") && matchedTextLower.endsWith("`") -> {
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBgColor))
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
-                builder.append(content)
+                builder.append(decodeEscapesEscaped(content))
                 builder.pop()
             }
             matchedTextLower.startsWith("$$") && matchedTextLower.endsWith("$$") -> {
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Serif, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold))
                 val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
-                builder.append(content)
+                builder.append(decodeEscapesEscaped(content))
                 builder.pop()
             }
             matchedTextLower.startsWith("$") && matchedTextLower.endsWith("$") -> {
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Serif, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold))
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
-                builder.append(content)
+                builder.append(decodeEscapesEscaped(content))
                 builder.pop()
             }
             matchedTextLower.startsWith("<font") || matchedTextLower.contains("font") -> {
@@ -2274,7 +2527,7 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                         color = color ?: Color.Unspecified,
                         fontSize = fontSize ?: androidx.compose.ui.unit.TextUnit.Unspecified
                     ))
-                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor))
+                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor, referenceMap))
                     builder.pop()
                 } else {
                     builder.append(matchedText)
@@ -2325,11 +2578,14 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                         fontWeight = fontWeight,
                         fontStyle = fontStyle
                     ))
-                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor))
+                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor, referenceMap))
                     builder.pop()
                 } else {
                     builder.append(matchedText)
                 }
+            }
+            matchedTextLower.startsWith("<br") -> {
+                builder.append("\n")
             }
             else -> {
                 builder.append(matchedText)
@@ -2338,11 +2594,12 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
         index = match.range.last + 1
     }
 
-    if (index < input.length) {
-        builder.append(input.substring(index))
+    if (index < encodedInput.length) {
+        builder.append(encodedInput.substring(index))
     }
 
-    return builder.toAnnotatedString()
+    val finalAnnotated = builder.toAnnotatedString()
+    return decodeAnnotatedString(finalAnnotated)
 }
 
 fun parseHtmlColor(colorStr: String): Color? {

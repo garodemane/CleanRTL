@@ -17,7 +17,25 @@ object HtmlExporter {
         title: String = "خروجی CleanRTL (CleanRTL Web Document)",
         fontSizePx: Int = 16
     ) {
-        val paragraphs = text.split("\n")
+        val rawParagraphs = text.split("\n")
+        val paragraphs = mutableListOf<String>()
+        val referenceMap = mutableMapOf<String, Pair<String, String?>>()
+
+        val refDefRegex = Regex("""^\s*\[([^\]]+)\]:\s*(\S+)(?:\s+["'(]([^"')]*)["'))]?)?\s*$""")
+
+        for (p in rawParagraphs) {
+            val cleanP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            val match = refDefRegex.matchEntire(cleanP)
+            if (match != null) {
+                val label = match.groupValues[1].trim().lowercase()
+                val url = match.groupValues[2].trim()
+                val titleVal = match.groupValues[3].trim().takeIf { it.isNotEmpty() }
+                referenceMap[label] = Pair(url, titleVal)
+            } else {
+                paragraphs.add(p)
+            }
+        }
+
         val htmlContent = StringBuilder()
 
         var inCodeBlock = false
@@ -239,7 +257,7 @@ object HtmlExporter {
                                 TableColumnAlignment.CENTER -> "text-center"
                                 TableColumnAlignment.RIGHT -> "text-right"
                             }
-                            val headerCellFormatted = formatHtmlInlineStyles(headerColText)
+                            val headerCellFormatted = formatHtmlInlineStyles(headerColText, referenceMap)
                             val cellRtl = TextRepairProcessor.isParagraphRtl(headerColText)
                             val cellDir = if (cellRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
                             htmlContent.append("<th class='$alignClass' $cellDir>$headerCellFormatted</th>\n")
@@ -256,7 +274,7 @@ object HtmlExporter {
                                     TableColumnAlignment.CENTER -> "text-center"
                                     TableColumnAlignment.RIGHT -> "text-right"
                                 }
-                                val cellFormatted = formatHtmlInlineStyles(cellText)
+                                val cellFormatted = formatHtmlInlineStyles(cellText, referenceMap)
                                 val cellRtl = TextRepairProcessor.isParagraphRtl(cellText)
                                 val cellDir = if (cellRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
                                 htmlContent.append("<td class='$alignClass' $cellDir>$cellFormatted</td>\n")
@@ -269,6 +287,49 @@ object HtmlExporter {
                         continue
                     }
                 }
+            }
+
+            val cleanTrimmedLower = trimmedClean.lowercase()
+            if (cleanTrimmedLower.startsWith("<details") || cleanTrimmedLower.startsWith("<summary>") || cleanTrimmedLower == "</details>") {
+                // Close any open lists and blockquotes before detail tags
+                while (openLists.isNotEmpty()) {
+                    val closed = openLists.removeAt(openLists.size - 1)
+                    htmlContent.append("</${closed.type}>\n")
+                }
+                while (activeQuoteLevel > 0) {
+                    htmlContent.append("</blockquote>\n")
+                    activeQuoteLevel--
+                }
+
+                if (cleanTrimmedLower.startsWith("<details")) {
+                    htmlContent.append("<details>\n")
+                    val summaryMatch = Regex("(?is)<summary>(.*?)</summary>").find(trimmedClean)
+                    if (summaryMatch != null) {
+                        val summaryText = summaryMatch.groupValues[1]
+                        val summaryFormatted = formatHtmlInlineStyles(summaryText, referenceMap)
+                        htmlContent.append("<summary>$summaryFormatted</summary>\n")
+                    }
+                } else if (cleanTrimmedLower.startsWith("<summary>")) {
+                    val summaryMatch = Regex("(?is)<summary>(.*?)</summary>").find(trimmedClean)
+                    if (summaryMatch != null) {
+                        val summaryText = summaryMatch.groupValues[1]
+                        val summaryFormatted = formatHtmlInlineStyles(summaryText, referenceMap)
+                        htmlContent.append("<summary>$summaryFormatted</summary>\n")
+                    } else if (cleanTrimmedLower.endsWith("</summary>")) {
+                        val summaryText = trimmedClean.substring(9, trimmedClean.length - 10)
+                        val summaryFormatted = formatHtmlInlineStyles(summaryText, referenceMap)
+                        htmlContent.append("<summary>$summaryFormatted</summary>\n")
+                    } else {
+                        val summaryText = trimmedClean.removePrefix("<summary>")
+                        val summaryFormatted = formatHtmlInlineStyles(summaryText, referenceMap)
+                        htmlContent.append("<summary>$summaryFormatted</summary>\n")
+                    }
+                } else if (cleanTrimmedLower == "</details>") {
+                    htmlContent.append("</details>\n")
+                }
+
+                idx++
+                continue
             }
 
             // 2. Horizontal Divider Line (--- or *** or ___)
@@ -345,7 +406,7 @@ object HtmlExporter {
                     htmlContent.append("</${closed.type}>\n")
                 }
 
-                val formattedText = formatHtmlInlineStyles(quoteText)
+                val formattedText = formatHtmlInlineStyles(quoteText, referenceMap)
                 val isRtl = TextRepairProcessor.isParagraphRtl(formattedText)
                 val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
 
@@ -367,7 +428,7 @@ object HtmlExporter {
                 }
 
                 if (isList) {
-                    val formattedText = formatHtmlInlineStyles(listText)
+                    val formattedText = formatHtmlInlineStyles(listText, referenceMap)
                     val isRtl = TextRepairProcessor.isParagraphRtl(formattedText)
                     val dir = if (isRtl) "rtl" else "ltr"
                     val dirAttr = "dir='$dir' class='$dir'"
@@ -402,7 +463,7 @@ object HtmlExporter {
                         htmlContent.append("</${closed.type}>\n")
                     }
 
-                    val formattedText = formatHtmlInlineStyles(displayText)
+                    val formattedText = formatHtmlInlineStyles(displayText, referenceMap)
                     val isRtl = TextRepairProcessor.isParagraphRtl(formattedText)
                     val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
 
@@ -757,6 +818,49 @@ object HtmlExporter {
                         border-radius: 0;
                     }
 
+                    kbd {
+                        background-color: rgba(0, 0, 0, 0.05);
+                        border: 1px solid var(--border-color);
+                        border-radius: 4px;
+                        box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2), 0 2px 0 0 rgba(255, 255, 255, 0.7) inset;
+                        color: var(--accent-color);
+                        display: inline-block;
+                        font-family: 'JetBrains Mono', 'Fira Code', monospace;
+                        font-size: 0.85em;
+                        font-weight: bold;
+                        line-height: 1.2;
+                        margin: 0 2px;
+                        padding: 2px 5px;
+                        white-space: nowrap;
+                    }
+
+                    details {
+                        border: 1px solid var(--border-color);
+                        padding: 12px 16px;
+                        border-radius: 12px;
+                        margin: 16px 0;
+                        background-color: var(--quote-bg);
+                        transition: box-shadow 0.2s ease;
+                    }
+
+                    details[open] {
+                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+                    }
+
+                    summary {
+                        font-weight: bold;
+                        cursor: pointer;
+                        color: var(--accent-color);
+                        outline: none;
+                        padding: 4px 0;
+                        user-select: none;
+                        font-size: 1.05em;
+                    }
+
+                    summary::marker {
+                        color: var(--accent-color);
+                    }
+
                     .spacer {
                         height: 12px;
                     }
@@ -880,33 +984,104 @@ object HtmlExporter {
         }
     }
 
-    private fun formatHtmlInlineStyles(input: String): String {
-        var res = input
+    private fun formatHtmlInlineStyles(input: String, referenceMap: Map<String, Pair<String, String?>> = emptyMap()): String {
+        val escapeMap = listOf(
+            "\\\\" to "\uE000",
+            "\\`"  to "\uE001",
+            "\\*"  to "\uE002",
+            "\\_"  to "\uE003",
+            "\\{"  to "\uE004",
+            "\\}"  to "\uE005",
+            "\\["  to "\uE006",
+            "\\]"  to "\uE007",
+            "\\("  to "\uE008",
+            "\\)"  to "\uE009",
+            "\\#"  to "\uE00A",
+            "\\+"  to "\uE00B",
+            "\\-"  to "\uE00C",
+            "\\."  to "\uE00D",
+            "\\!"  to "\uE00E",
+            "\\|"  to "\uE00F",
+            "\\~"  to "\uE010"
+        )
+
+        fun encodeEscapes(str: String): String {
+            var r = str
+            for (pair in escapeMap) {
+                r = r.replace(pair.first, pair.second)
+            }
+            return r
+        }
+
+        fun decodeEscapesUnescaped(str: String): String {
+            var r = str
+            for (pair in escapeMap) {
+                val unescaped = pair.first.substring(1)
+                r = r.replace(pair.second, unescaped)
+            }
+            return r
+        }
+
+        fun decodeEscapesEscaped(str: String): String {
+            var r = str
+            for (pair in escapeMap) {
+                r = r.replace(pair.second, pair.first)
+            }
+            return r
+        }
+
+        val encodedInput = encodeEscapes(input)
+        var res = encodedInput
         
-        // 1. Bold: **text** or __text__
-        res = res.replace(Regex("\\*\\*(.*?)\\*\\*"), "<strong>$1</strong>")
-        res = res.replace(Regex("__(.*?)__"), "<strong>$1</strong>")
-        
-        // 2. Italic: *text* or _text_
-        res = res.replace(Regex("\\*(.*?)\\*"), "<em>$1</em>")
-        res = res.replace(Regex("_(.*?)_"), "<em>$1</em>")
-        
-        // 3. Strikethrough: ~~text~~
-        res = res.replace(Regex("~~(.*?)~~"), "<del>$1</del>")
-        
-        // 4. Inline code: `code`
-        res = res.replace(Regex("`(.*?)`"), "<code>$1</code>")
-        
-        // 5. Links: [text](url)
+        // 1. Reference-style links: [text][label]
+        res = res.replace(Regex("\\[([^\\]]+?)\\]\\[([^\\]]*?)\\]"), { match ->
+            val linkText = match.groupValues[1]
+            val label = match.groupValues[2].trim().lowercase().ifEmpty { linkText.trim().lowercase() }
+            val decodedLabel = decodeEscapesUnescaped(label)
+            val refVal = referenceMap[decodedLabel]
+            if (refVal != null) {
+                val titleAttr = if (refVal.second != null) " title=\"${refVal.second}\"" else ""
+                "<a href=\"${refVal.first}\"$titleAttr target=\"_blank\" style=\"color: var(--accent-color); text-decoration: underline;\">$linkText</a>"
+            } else {
+                match.value
+            }
+        })
+
+        // 2. Autolinks: <https://url>
+        res = res.replace(Regex("<(https?://[^>\\s]+)>"), "<a href=\"$1\" target=\"_blank\" style=\"color: var(--accent-color); text-decoration: underline;\">$1</a>")
+
+        // 3. Auto-emails: <email@domain.com>
+        res = res.replace(Regex("<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})>"), "<a href=\"mailto:$1\" style=\"color: var(--accent-color); text-decoration: underline;\">$1</a>")
+
+        // 4. Links: [text](url)
         res = res.replace(Regex("\\[([^\\]]+?)\\]\\(([^\\)]+?)\\)"), { match ->
             val text = match.groupValues[1]
             val rawUrl = match.groupValues[2].trim()
             val urlParts = rawUrl.split(Regex("[\\s\\u00A0]+"))
             val url = urlParts[0].replace("\"", "").replace("'", "")
-            "<a href=\"$url\" target=\"_blank\" style=\"color: var(--accent-color); text-decoration: underline;\">$text</a>"
+            val decodedUrl = decodeEscapesUnescaped(url)
+            "<a href=\"$decodedUrl\" target=\"_blank\" style=\"color: var(--accent-color); text-decoration: underline;\">$text</a>"
+        })
+
+        // 5. Bold: **text** or __text__
+        res = res.replace(Regex("\\*\\*(.*?)\\*\\*"), "<strong>$1</strong>")
+        res = res.replace(Regex("__(.*?)__"), "<strong>$1</strong>")
+        
+        // 6. Italic: *text* or _text_
+        res = res.replace(Regex("\\*(.*?)\\*"), "<em>$1</em>")
+        res = res.replace(Regex("_(.*?)_"), "<em>$1</em>")
+        
+        // 7. Strikethrough: ~~text~~
+        res = res.replace(Regex("~~(.*?)~~"), "<del>$1</del>")
+        
+        // 8. Inline code: `code`
+        res = res.replace(Regex("`(.*?)`"), { match ->
+            val codeContent = match.groupValues[1]
+            val decodedCode = decodeEscapesEscaped(codeContent)
+            "<code>$decodedCode</code>"
         })
         
-        return res
+        return decodeEscapesUnescaped(res)
     }
 
     private fun containsPersian(text: String): Boolean {
