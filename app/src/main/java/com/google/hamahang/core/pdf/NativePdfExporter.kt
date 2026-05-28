@@ -690,8 +690,8 @@ object NativePdfExporter {
         val builder = SpannableStringBuilder()
         var index = 0
 
-        // Match bold, italic, inline code, inline math, or HTML span tags
-        val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>)")
+        // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
+        val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*>)")
         val matches = regex.findAll(input)
 
         for (match in matches) {
@@ -731,6 +731,41 @@ object NativePdfExporter {
                     builder.append(content)
                     builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedText.startsWith("<font") || (matchedText.startsWith("<") && matchedText.contains("font")) -> {
+                    val fontRegex = Regex("<\\s*font\\s+([^>]*)>(.*?)<\\s*/\\s*font\\s*>")
+                    val fontMatch = fontRegex.matchEntire(matchedText)
+                    if (fontMatch != null) {
+                        val attrsStr = fontMatch.groupValues[1]
+                        val innerText = fontMatch.groupValues[2]
+
+                        var color: Int? = null
+                        var fontSizePx: Float? = null
+
+                        val colorMatch = Regex("color\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(attrsStr)
+                        if (colorMatch != null) {
+                            val colorValue = colorMatch.groupValues[1]
+                            color = parseHtmlColorToInt(colorValue)
+                        }
+
+                        val sizeMatch = Regex("size\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(attrsStr)
+                        if (sizeMatch != null) {
+                            val sizeValue = sizeMatch.groupValues[1]
+                            fontSizePx = parseHtmlFontSizeAttributeToPx(sizeValue, baseFontSize)
+                        }
+
+                        val start = builder.length
+                        builder.append(parseMarkdownAndHtmlToSpannable(innerText, fontSizePx ?: baseFontSize, boldTypeface, italicTypeface))
+
+                        if (color != null) {
+                            builder.setSpan(ForegroundColorSpan(color!!), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                        if (fontSizePx != null) {
+                            builder.setSpan(AbsoluteSizeSpan(fontSizePx!!.toInt()), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                    } else {
+                        builder.append(matchedText)
+                    }
                 }
                 matchedText.startsWith("<") && matchedText.endsWith(">") -> {
                     val spanRegex = Regex("<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>(.*?)<\\s*/\\s*span\\s*>")
@@ -838,6 +873,24 @@ object NativePdfExporter {
             clean.endsWith("%") -> num * 0.01f * baseFontSize
             else -> num
         }
+    }
+
+    private fun parseHtmlFontSizeAttributeToPx(sizeStr: String, baseFontSize: Float): Float? {
+        val clean = sizeStr.trim()
+        val intVal = clean.toIntOrNull()
+        if (intVal != null) {
+            return when (intVal) {
+                1 -> 10f
+                2 -> 12f
+                3 -> 14f
+                4 -> 18f
+                5 -> 24f
+                6 -> 32f
+                7 -> 42f
+                else -> if (intVal > 7) intVal.toFloat() else null
+            }
+        }
+        return parseHtmlFontSizeToPx(clean, baseFontSize)
     }
 
     private fun containsPersian(text: String): Boolean {

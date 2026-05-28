@@ -1912,8 +1912,8 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
     val builder = AnnotatedString.Builder()
     var index = 0
 
-    // Match bold, italic, inline code, inline math, or HTML span tags
-    val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>)")
+    // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
+    val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*>)")
     val matches = regex.findAll(input)
 
     for (match in matches) {
@@ -1947,6 +1947,38 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Serif, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold))
                 builder.append(matchedText.substring(1, matchedText.length - 1))
                 builder.pop()
+            }
+            matchedText.startsWith("<font") || (matchedText.startsWith("<") && matchedText.contains("font")) -> {
+                val fontRegex = Regex("<\\s*font\\s+([^>]*)>(.*?)<\\s*/\\s*font\\s*>")
+                val fontMatch = fontRegex.matchEntire(matchedText)
+                if (fontMatch != null) {
+                    val attrsStr = fontMatch.groupValues[1]
+                    val innerText = fontMatch.groupValues[2]
+
+                    var color: Color? = null
+                    var fontSize: androidx.compose.ui.unit.TextUnit? = null
+
+                    val colorMatch = Regex("color\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(attrsStr)
+                    if (colorMatch != null) {
+                        val colorValue = colorMatch.groupValues[1]
+                        color = parseHtmlColor(colorValue)
+                    }
+
+                    val sizeMatch = Regex("size\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(attrsStr)
+                    if (sizeMatch != null) {
+                        val sizeValue = sizeMatch.groupValues[1]
+                        fontSize = parseHtmlFontSizeAttribute(sizeValue)
+                    }
+
+                    builder.pushStyle(SpanStyle(
+                        color = color ?: Color.Unspecified,
+                        fontSize = fontSize ?: androidx.compose.ui.unit.TextUnit.Unspecified
+                    ))
+                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor))
+                    builder.pop()
+                } else {
+                    builder.append(matchedText)
+                }
             }
             matchedText.startsWith("<") && matchedText.endsWith(">") -> {
                 val spanRegex = Regex("<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>(.*?)<\\s*/\\s*span\\s*>")
@@ -2051,6 +2083,24 @@ fun parseHtmlFontSize(sizeStr: String): androidx.compose.ui.unit.TextUnit? {
         clean.endsWith("%") -> (num * 0.16f).sp
         else -> num.sp
     }
+}
+
+fun parseHtmlFontSizeAttribute(sizeStr: String): androidx.compose.ui.unit.TextUnit? {
+    val clean = sizeStr.trim()
+    val intVal = clean.toIntOrNull()
+    if (intVal != null) {
+        return when (intVal) {
+            1 -> 10.sp
+            2 -> 12.sp
+            3 -> 14.sp
+            4 -> 18.sp
+            5 -> 24.sp
+            6 -> 32.sp
+            7 -> 42.sp
+            else -> if (intVal > 7) intVal.sp else null
+        }
+    }
+    return parseHtmlFontSize(clean)
 }
 
 
