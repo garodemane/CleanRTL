@@ -873,7 +873,7 @@ object NativePdfExporter {
 
         // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
         // Compiled with case insensitivity (?i) and dot matches all (?s), with explicit unicode spaces matching, attribute-flexible
-        val regex = Regex("(?is)(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
+        val regex = Regex("(?is)(\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|\\[[^\\]]+?\\]\\([^\\)]+?\\)|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
         val matches = regex.findAll(input)
 
         for (match in matches) {
@@ -891,11 +891,48 @@ object NativePdfExporter {
                     builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
                     builder.setSpan(StyleSpan(Typeface.BOLD), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
+                matchedTextLower.startsWith("__") && matchedTextLower.endsWith("__") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
+                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
+                    builder.setSpan(StyleSpan(Typeface.BOLD), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
                 matchedTextLower.startsWith("*") && matchedTextLower.endsWith("*") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
                     builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
                     builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("_") && matchedTextLower.endsWith("_") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
+                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("~~") && matchedTextLower.endsWith("~~") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
+                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
+                    builder.setSpan(android.text.style.StrikethroughSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("[") && matchedTextLower.contains("](") -> {
+                    val linkRegex = Regex("\\[([^\\]]+?)\\]\\(([^\\)]+?)\\)")
+                    val linkMatch = linkRegex.matchEntire(matchedTextClean)
+                    if (linkMatch != null) {
+                        val linkText = linkMatch.groupValues[1]
+                        val rawUrl = linkMatch.groupValues[2]
+                        val urlParts = rawUrl.trim().split(Regex("[\\s\\u00A0]+"))
+                        val url = cleanQuotes(urlParts[0])
+                        
+                        val start = builder.length
+                        builder.append(parseMarkdownAndHtmlToSpannable(linkText, baseFontSize, boldTypeface, italicTypeface))
+                        
+                        builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(android.text.style.URLSpan(url), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    } else {
+                        builder.append(matchedText)
+                    }
                 }
                 matchedTextLower.startsWith("`") && matchedTextLower.endsWith("`") -> {
                     val start = builder.length

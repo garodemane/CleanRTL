@@ -2125,7 +2125,7 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
 
     // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
     // Compiled with case insensitivity (?i) and dot matches all (?s), with explicit unicode spaces matching, attribute-flexible
-    val regex = Regex("(?is)(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
+    val regex = Regex("(?is)(\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|\\[[^\\]]+?\\]\\([^\\)]+?\\)|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
     val matches = regex.findAll(input)
 
     for (match in matches) {
@@ -2143,11 +2143,47 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                 builder.append(parseMarkdownInlineStyles(content, codeBgColor))
                 builder.pop()
             }
+            matchedTextLower.startsWith("__") && matchedTextLower.endsWith("__") -> {
+                builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor))
+                builder.pop()
+            }
             matchedTextLower.startsWith("*") && matchedTextLower.endsWith("*") -> {
                 builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
                 builder.append(parseMarkdownInlineStyles(content, codeBgColor))
                 builder.pop()
+            }
+            matchedTextLower.startsWith("_") && matchedTextLower.endsWith("_") -> {
+                builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
+                val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor))
+                builder.pop()
+            }
+            matchedTextLower.startsWith("~~") && matchedTextLower.endsWith("~~") -> {
+                builder.pushStyle(SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough))
+                val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor))
+                builder.pop()
+            }
+            matchedTextLower.startsWith("[") && matchedTextLower.contains("](") -> {
+                val linkRegex = Regex("\\[([^\\]]+?)\\]\\(([^\\)]+?)\\)")
+                val linkMatch = linkRegex.matchEntire(matchedTextClean)
+                if (linkMatch != null) {
+                    val linkText = linkMatch.groupValues[1]
+                    val rawUrl = linkMatch.groupValues[2]
+                    val urlParts = rawUrl.trim().split(Regex("[\\s\\u00A0]+"))
+                    
+                    builder.pushStyle(SpanStyle(
+                        color = Color(0xFF0E8457), // Accent green link color
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                    ))
+                    builder.append(parseMarkdownInlineStyles(linkText, codeBgColor))
+                    builder.pop()
+                } else {
+                    builder.append(matchedText)
+                }
             }
             matchedTextLower.startsWith("`") && matchedTextLower.endsWith("`") -> {
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBgColor))

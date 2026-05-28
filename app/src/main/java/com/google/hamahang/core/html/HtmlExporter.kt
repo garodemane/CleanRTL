@@ -712,9 +712,30 @@ object HtmlExporter {
 
     private fun formatHtmlInlineStyles(input: String): String {
         var res = input
+        
+        // 1. Bold: **text** or __text__
         res = res.replace(Regex("\\*\\*(.*?)\\*\\*"), "<strong>$1</strong>")
+        res = res.replace(Regex("__(.*?)__"), "<strong>$1</strong>")
+        
+        // 2. Italic: *text* or _text_
         res = res.replace(Regex("\\*(.*?)\\*"), "<em>$1</em>")
+        res = res.replace(Regex("_(.*?)_"), "<em>$1</em>")
+        
+        // 3. Strikethrough: ~~text~~
+        res = res.replace(Regex("~~(.*?)~~"), "<del>$1</del>")
+        
+        // 4. Inline code: `code`
         res = res.replace(Regex("`(.*?)`"), "<code>$1</code>")
+        
+        // 5. Links: [text](url)
+        res = res.replace(Regex("\\[([^\\]]+?)\\]\\(([^\\)]+?)\\)"), { match ->
+            val text = match.groupValues[1]
+            val rawUrl = match.groupValues[2].trim()
+            val urlParts = rawUrl.split(Regex("[\\s\\u00A0]+"))
+            val url = urlParts[0].replace("\"", "").replace("'", "")
+            "<a href=\"$url\" target=\"_blank\" style=\"color: var(--accent-color); text-decoration: underline;\">$text</a>"
+        })
+        
         return res
     }
 
