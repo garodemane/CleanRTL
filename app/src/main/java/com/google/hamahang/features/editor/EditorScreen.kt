@@ -1345,63 +1345,40 @@ fun MarkdownNumberedListItem(
 fun MarkdownBlockquote(text: String, fontSize: androidx.compose.ui.unit.TextUnit, level: Int = 1) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    CompositionLocalProvider(
+        LocalLayoutDirection provides (if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr)
     ) {
-        Row(modifier = Modifier.padding(12.dp)) {
-            if (!isRtl) {
-                Row(
-                    modifier = Modifier.height(IntrinsicSize.Min),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    repeat(level) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .width(3.dp)
-                                .background(MaterialTheme.colorScheme.secondary)
-                        )
-                        if (it < level - 1) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-                    }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+                .padding(vertical = 4.dp)
+                .padding(start = 12.dp, end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            repeat(level) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(3.dp)
+                        .background(MaterialTheme.colorScheme.secondary)
+                )
+                if (it < level - 1) {
+                    Spacer(modifier = Modifier.width(4.dp))
                 }
-                Spacer(modifier = Modifier.width(8.dp))
             }
+            Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = parseMarkdownInlineStyles(text, codeBgColor),
                 style = TextStyle(
                     fontSize = fontSize,
                     fontStyle = FontStyle.Italic,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = if (isRtl) TextAlign.Right else TextAlign.Left,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                    textAlign = TextAlign.Start,
                     textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
                 ),
                 modifier = Modifier.weight(1f)
             )
-            if (isRtl) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Row(
-                    modifier = Modifier.height(IntrinsicSize.Min),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    repeat(level) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .width(3.dp)
-                                .background(MaterialTheme.colorScheme.secondary)
-                        )
-                        if (it < level - 1) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-                    }
-                }
-            }
         }
     }
 }
