@@ -166,8 +166,8 @@ class TextRepairProcessorTest {
         println("REPAIRED SPAN: " + repairedSpan)
         assertEquals("repairedSpan should not corrupt HTML tags", emojiSpanInput, repairedSpan)
 
-        // The quote-agnostic regex
-        val inlineRegex = java.util.regex.Pattern.compile("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[^>]+>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*)")
+        // The quote-agnostic regex compiled with (?isU)
+        val inlineRegex = java.util.regex.Pattern.compile("(?isU)(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[^>]+>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*>)")
         val matcher = inlineRegex.matcher(repairedSpan)
         val matched = matcher.find()
         println("REGEX MATCHED: " + matched)
@@ -186,6 +186,18 @@ class TextRepairProcessorTest {
         val repairedAngled = TextRepairProcessor.repairText(angledInput)
         assertEquals("repairedAngled should preserve angled quotes", angledInput, repairedAngled)
         assertTrue("Regex should match angled quote style", inlineRegex.matcher(repairedAngled).find())
+
+        // Test uppercase case insensitivity
+        val uppercaseInput = "🔴 <SPAN STYLE=\"COLOR: #D9534F\">هشدار</SPAN>"
+        assertTrue("Regex should match uppercase tags", inlineRegex.matcher(uppercaseInput).find())
+
+        // Test non-breaking space (Unicode whitespace \u00A0)
+        val nbspInput = "🔴 <span style=\"color:#00ff00\">2020</span>" // contains non-breaking space \u00A0 between span and style
+        assertTrue("Regex should match tags containing non-breaking spaces", inlineRegex.matcher(nbspInput).find())
+
+        // Test multiline tag / newline inside span content
+        val multilineInput = "🔴 <span style=\"color:#00ff00\">هشدار\nحریم\nخصوصی</span>"
+        assertTrue("Regex should match tags containing newline characters", inlineRegex.matcher(multilineInput).find())
     }
 
     @Test
