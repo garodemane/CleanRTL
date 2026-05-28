@@ -19,6 +19,7 @@ object HtmlExporter {
         val htmlContent = StringBuilder()
 
         var inCodeBlock = false
+        var currentCodeLang = "code"
         val codeLines = mutableListOf<String>()
 
         var inMathBlock = false
@@ -91,11 +92,29 @@ object HtmlExporter {
             val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
             if (cleanCodeBlockTrim.startsWith("```")) {
                 if (inCodeBlock) {
-                    val codeContent = codeLines.joinToString("\n")
+                    val rawCode = codeLines.joinToString("\n")
+                    val preprocessed = preprocessCodeBidi(rawCode)
+                    val codeContent = preprocessed
                         .replace("&", "&amp;")
                         .replace("<", "&lt;")
                         .replace(">", "&gt;")
-                    htmlContent.append("<pre><code>$codeContent</code></pre>\n")
+                    
+                    val displayLang = if (currentCodeLang == "code") "CODE" else currentCodeLang.uppercase()
+                    htmlContent.append("""
+                        <div class="code-window">
+                            <div class="code-header">
+                                <div class="code-dots">
+                                    <span class="dot red"></span>
+                                    <span class="dot yellow"></span>
+                                    <span class="dot green"></span>
+                                </div>
+                                <span class="code-lang">$displayLang</span>
+                                <button class="copy-btn" onclick="copyCode(this)">کپی</button>
+                            </div>
+                            <pre><code class="language-$currentCodeLang">$codeContent</code></pre>
+                        </div>
+                    """.trimIndent() + "\n")
+                    
                     codeLines.clear()
                     inCodeBlock = false
                 } else {
@@ -105,6 +124,7 @@ object HtmlExporter {
                         inMermaidBlock = true
                     } else {
                         inCodeBlock = true
+                        currentCodeLang = if (lang.isEmpty()) "code" else lang
                     }
                 }
                 idx++
@@ -270,8 +290,27 @@ object HtmlExporter {
 
         // Final code block fallback
         if (inCodeBlock && codeLines.isNotEmpty()) {
-            val codeContent = codeLines.joinToString("\n")
-            htmlContent.append("<pre><code>$codeContent</code></pre>\n")
+            val rawCode = codeLines.joinToString("\n")
+            val preprocessed = preprocessCodeBidi(rawCode)
+            val codeContent = preprocessed
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            val displayLang = if (currentCodeLang == "code") "CODE" else currentCodeLang.uppercase()
+            htmlContent.append("""
+                <div class="code-window">
+                    <div class="code-header">
+                        <div class="code-dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <span class="code-lang">$displayLang</span>
+                        <button class="copy-btn" onclick="copyCode(this)">کپی</button>
+                    </div>
+                    <pre><code class="language-$currentCodeLang">$codeContent</code></pre>
+                </div>
+            """.trimIndent() + "\n")
         }
 
         // Final math block fallback
@@ -299,7 +338,16 @@ object HtmlExporter {
                 <!-- Include beautiful web fonts from Google Fonts -->
                 <link rel="preconnect" href="https://fonts.googleapis.com">
                 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Vazirmatn:wght@300;400;700&display=swap" rel="stylesheet">
+                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&family=Vazirmatn:wght@300;400;700&display=swap" rel="stylesheet">
+                
+                <!-- Highlight.js for beautiful code syntax highlighting -->
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css">
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+                <script>
+                    document.addEventListener("DOMContentLoaded", function() {
+                        hljs.highlightAll();
+                    });
+                </script>
                 
                 <!-- KaTeX for beautiful math formula rendering -->
                 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
@@ -426,24 +474,95 @@ object HtmlExporter {
                         border-right: none;
                     }
 
+                    /* Premium Code Window Style */
+                    .code-window {
+                        background-color: #1E1E1E;
+                        border-radius: 12px;
+                        margin: 24px 0;
+                        overflow: hidden;
+                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+                        border: 1px solid rgba(255, 255, 255, 0.08);
+                    }
+
+                    .code-header {
+                        background-color: #181818;
+                        padding: 10px 16px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+                        user-select: none;
+                    }
+
+                    .code-dots {
+                        display: flex;
+                        gap: 6px;
+                    }
+
+                    .dot {
+                        width: 12px;
+                        height: 12px;
+                        border-radius: 50%;
+                        display: inline-block;
+                    }
+
+                    .dot.red { background-color: #FF5F56; }
+                    .dot.yellow { background-color: #FFBD2E; }
+                    .dot.green { background-color: #27C93F; }
+
+                    .code-lang {
+                        color: #8E8E93;
+                        font-size: 0.8em;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        font-family: 'Inter', sans-serif;
+                    }
+
+                    .copy-btn {
+                        background-color: rgba(255, 255, 255, 0.06);
+                        color: #E2E4EC;
+                        border: none;
+                        padding: 4px 10px;
+                        border-radius: 4px;
+                        font-size: 0.75em;
+                        cursor: pointer;
+                        transition: background-color 0.2s, transform 0.1s;
+                        font-family: 'Vazirmatn', sans-serif;
+                    }
+
+                    .copy-btn:hover {
+                        background-color: rgba(255, 255, 255, 0.12);
+                    }
+
+                    .copy-btn:active {
+                        transform: scale(0.95);
+                    }
+
                     pre {
-                        background-color: var(--code-bg);
+                        margin: 0;
+                        background-color: transparent;
                         color: var(--code-text);
                         padding: 16px;
                         border-radius: 8px;
                         overflow-x: auto;
-                        font-family: monospace;
+                        font-family: 'JetBrains Mono', 'Fira Code', monospace;
                         font-size: 0.9em;
                         direction: ltr;
                         text-align: left;
-                        box-shadow: inset 0 2px 8px rgba(0,0,0,0.3);
+                    }
+
+                    .code-window pre {
+                        margin: 0;
+                        border-radius: 0;
+                        padding: 18px;
                     }
 
                     code {
                         background-color: rgba(0,0,0,0.06);
                         padding: 2px 6px;
                         border-radius: 4px;
-                        font-family: monospace;
+                        font-family: 'JetBrains Mono', 'Fira Code', monospace;
                         font-size: 0.9em;
                     }
 
@@ -516,6 +635,21 @@ object HtmlExporter {
                 <div class="container">
                     $htmlContent
                 </div>
+                <script>
+                    function copyCode(button) {
+                        var pre = button.parentElement.nextElementSibling;
+                        var code = pre.querySelector('code');
+                        navigator.clipboard.writeText(code.innerText).then(function() {
+                            var originalText = button.innerText;
+                            button.innerText = 'کپی شد!';
+                            button.style.backgroundColor = '#0E8457';
+                            setTimeout(function() {
+                                button.innerText = originalText;
+                                button.style.backgroundColor = '';
+                            }, 2000);
+                        });
+                    }
+                </script>
             </body>
             </html>
         """.trimIndent()
@@ -567,5 +701,70 @@ object HtmlExporter {
         res = res.replace(Regex("\\*(.*?)\\*"), "<em>$1</em>")
         res = res.replace(Regex("`(.*?)`"), "<code>$1</code>")
         return res
+    }
+
+    private fun containsPersian(text: String): Boolean {
+        return text.any { it in '\u0600'..'\u06FF' || it == '\uFB8A' || it == '\u067E' || it == '\u0686' || it == '\u06AF' }
+    }
+
+    private fun preprocessCodeBidi(code: String): String {
+        val lines = code.split("\n")
+        val processedLines = lines.map { line ->
+            if (line.isBlank()) return@map line
+
+            // Check if there is a comment
+            val commentMatch = Regex("(.*)(#|//)(.*)").matchEntire(line)
+            if (commentMatch != null) {
+                val codePart = commentMatch.groupValues[1]
+                val prefix = commentMatch.groupValues[2]
+                val commentText = commentMatch.groupValues[3]
+                if (containsPersian(commentText)) {
+                    val cleanComment = commentText.trimStart()
+                    val spaces = commentText.substring(0, commentText.length - cleanComment.length)
+                    return@map "$codePart\u200E$prefix$spaces\u2067$cleanComment\u2069"
+                }
+            }
+
+            var processedLine = line
+            val hasPersian = containsPersian(processedLine)
+            
+            if (hasPersian) {
+                // 1. Triple quotes docstring on a single line
+                val tripleQuoteRegex = Regex("\"\"\"([^\"]*)\"\"\"")
+                processedLine = tripleQuoteRegex.replace(processedLine) { match ->
+                    val content = match.groupValues[1]
+                    if (containsPersian(content)) {
+                        "\"\"\"\u2067$content\u2069\"\"\""
+                    } else {
+                        match.value
+                    }
+                }
+
+                // 2. Double quotes single line string
+                val doubleQuoteRegex = Regex("\"([^\"]*)\"")
+                processedLine = doubleQuoteRegex.replace(processedLine) { match ->
+                    val content = match.groupValues[1]
+                    if (containsPersian(content)) {
+                        "\"\u2067$content\u2069\""
+                    } else {
+                        match.value
+                    }
+                }
+
+                // 3. Single quotes single line string
+                val singleQuoteRegex = Regex("'([^']*)'")
+                processedLine = singleQuoteRegex.replace(processedLine) { match ->
+                    val content = match.groupValues[1]
+                    if (containsPersian(content)) {
+                        "'\u2067$content\u2069'"
+                    } else {
+                        match.value
+                    }
+                }
+            }
+
+            processedLine
+        }
+        return processedLines.joinToString("\n")
     }
 }

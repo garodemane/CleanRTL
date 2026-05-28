@@ -31,7 +31,8 @@ object NativePdfExporter {
         text: String,
         outputStream: OutputStream,
         title: String = "CleanRTL Document",
-        baseFontSize: Float = 12f
+        baseFontSize: Float = 12f,
+        mermaidBitmaps: Map<String, android.graphics.Bitmap> = emptyMap()
     ) {
         val pdfDocument = PdfDocument()
 
@@ -117,6 +118,7 @@ object NativePdfExporter {
                     yOffset = drawMermaidBlock(
                         canvas, mermaidBlockLines, textPaint, monospaceTypeface,
                         margin, yOffset, printableWidth, pageHeight - margin,
+                        mermaidBitmaps,
                         onNewPage = {
                             pdfDocument.finishPage(currentPage)
                             currentPageNumber++
@@ -453,6 +455,7 @@ object NativePdfExporter {
             yOffset = drawMermaidBlock(
                 canvas, mermaidBlockLines, textPaint, monospaceTypeface,
                 margin, yOffset, printableWidth, pageHeight - margin,
+                mermaidBitmaps,
                 onNewPage = { canvas }
             )
         }
@@ -543,13 +546,34 @@ object NativePdfExporter {
         yStart: Float,
         width: Float,
         maxHeight: Float,
+        mermaidBitmaps: Map<String, android.graphics.Bitmap>,
         onNewPage: () -> Canvas
     ): Float {
         var currentCanvas = canvas
         var yOffset = yStart
         // Do NOT run any bidi preprocessing on Mermaid diagram code!
         val rawCode = lines.joinToString("\n")
-        val cleanCode = rawCode.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+        val cleanCode = rawCode.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+
+        val renderedBitmap = mermaidBitmaps[cleanCode] ?: mermaidBitmaps[rawCode]
+        if (renderedBitmap != null) {
+            val scale = width / renderedBitmap.width.toFloat()
+            val finalScale = if (scale < 1f) scale else 1f
+            val drawWidth = renderedBitmap.width * finalScale
+            val drawHeight = renderedBitmap.height * finalScale
+
+            // Draw visual graph with perfect page break
+            if (yOffset + drawHeight > maxHeight) {
+                currentCanvas = onNewPage()
+                yOffset = margin
+            }
+
+            val xOffset = margin + (width - drawWidth) / 2f
+            val destRect = RectF(xOffset, yOffset, xOffset + drawWidth, yOffset + drawHeight)
+            currentCanvas.drawBitmap(renderedBitmap, null, destRect, Paint(Paint.FILTER_BITMAP_FLAG))
+
+            return yOffset + drawHeight + 15f
+        }
 
         paint.apply {
             textSize = 10f

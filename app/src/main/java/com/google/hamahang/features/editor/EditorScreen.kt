@@ -56,6 +56,9 @@ import java.io.FileOutputStream
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.launch
+import com.google.hamahang.core.mermaid.MermaidRenderer
 
 @Composable
 fun CurveHeader(modifier: Modifier = Modifier) {
@@ -258,6 +261,9 @@ fun EditorScreen(
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val coroutineScope = rememberCoroutineScope()
+    var isExportingPdf by remember { mutableStateOf(false) }
+    val isDark = isSystemInDarkTheme()
 
     var navigationTab by remember { mutableStateOf(0) }
 
@@ -363,21 +369,72 @@ fun repairText(input: String): String {
     }
 
     fun handleExportPdf() {
-        try {
-            val downloadsFolder = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val pdfFile = getUniqueFile(downloadsFolder, "CleanRTL_Corrected", "pdf")
-            val outputStream = FileOutputStream(pdfFile)
-            
-            NativePdfExporter.exportToPdf(
-                context = context,
-                text = correctedText,
-                outputStream = outputStream,
-                title = "CleanRTL Document",
-                baseFontSize = fontSizeSp.toFloat()
-            )
-            Toast.makeText(context, "${Loc.tr("toast_pdf_saved", currentLanguage)} (${pdfFile.name})", Toast.LENGTH_LONG).show()
-        } catch (e: java.lang.Exception) {
-            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+        coroutineScope.launch {
+            try {
+                isExportingPdf = true
+                
+                // 1. Scan for mermaid code blocks
+                val paragraphs = correctedText.split("\n")
+                val mermaidBlocks = mutableListOf<String>()
+                var inMermaid = false
+                val currentBlock = StringBuilder()
+                
+                for (paragraph in paragraphs) {
+                    val trimmed = paragraph.trim()
+                    val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                    if (cleanCodeBlockTrim.startsWith("```")) {
+                        if (inMermaid) {
+                            mermaidBlocks.add(currentBlock.toString())
+                            currentBlock.clear()
+                            inMermaid = false
+                        } else {
+                            val rawLang = cleanCodeBlockTrim.substring(3).trim().lowercase()
+                            val lang = rawLang.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+                            if (lang == "mermaid") {
+                                inMermaid = true
+                            }
+                        }
+                    } else if (inMermaid) {
+                        if (currentBlock.isNotEmpty()) {
+                            currentBlock.append("\n")
+                        }
+                        currentBlock.append(paragraph)
+                    }
+                }
+                if (inMermaid && currentBlock.isNotEmpty()) {
+                    mermaidBlocks.add(currentBlock.toString())
+                }
+
+                // 2. Pre-compile all mermaid blocks to bitmaps
+                val mermaidBitmaps = mutableMapOf<String, android.graphics.Bitmap>()
+                for (block in mermaidBlocks) {
+                    val bitmap = MermaidRenderer.renderToBitmap(context, block, isDark)
+                    if (bitmap != null) {
+                        val cleanBlock = block.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                        mermaidBitmaps[cleanBlock] = bitmap
+                        mermaidBitmaps[block] = bitmap
+                    }
+                }
+
+                // 3. Render and save the PDF
+                val downloadsFolder = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val pdfFile = getUniqueFile(downloadsFolder, "CleanRTL_Corrected", "pdf")
+                val outputStream = FileOutputStream(pdfFile)
+                
+                NativePdfExporter.exportToPdf(
+                    context = context,
+                    text = correctedText,
+                    outputStream = outputStream,
+                    title = "CleanRTL Document",
+                    baseFontSize = fontSizeSp.toFloat(),
+                    mermaidBitmaps = mermaidBitmaps
+                )
+                Toast.makeText(context, "${Loc.tr("toast_pdf_saved", currentLanguage)} (${pdfFile.name})", Toast.LENGTH_LONG).show()
+            } catch (e: java.lang.Exception) {
+                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            } finally {
+                isExportingPdf = false
+            }
         }
     }
 
@@ -402,6 +459,29 @@ fun repairText(input: String): String {
     val layoutDirection = if (currentLanguage == AppLanguage.FA) LayoutDirection.Rtl else LayoutDirection.Ltr
     
     CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
+        if (isExportingPdf) {
+            Dialog(onDismissRequest = {}) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = if (currentLanguage == AppLanguage.FA) "در حال تولید فایل PDF و رندر گراف‌ها..." else "Generating PDF and rendering graphs...",
+                            style = TextStyle(fontSize = 14.sp)
+                        )
+                    }
+                }
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
