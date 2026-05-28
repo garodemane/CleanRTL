@@ -137,16 +137,27 @@ object TextRepairProcessor {
      * Prevents text layout leakage to surrounding Persian glyphs.
      */
     fun isolateLtrSubRuns(text: String): String {
-        // Targets Latin characters, numerals, technical URL routing, file paths or email strings terminating on alphanumeric
-        val ltrRegex = Regex("([a-zA-Z0-9_:\\/.\\-@#\\$]*[a-zA-Z0-9])")
+        // Match either an HTML tag (to ignore) OR a strong Latin run (to isolate)
+        val combinedRegex = Regex("(<[^>]+>)|([a-zA-Z0-9_:\\/.\\-@#\\$]*[a-zA-Z0-9])")
         
-        return text.replace(ltrRegex) { matchResult ->
-            val matchedValue = matchResult.value
-            // Do not isolate if already wrapped or if it represents a pure digit run
-            if (matchedValue.startsWith(LRI) || matchedValue.all { it.isDigit() }) {
-                matchedValue
-            } else {
-                "$LRI$matchedValue$PDI"
+        return text.replace(combinedRegex) { matchResult ->
+            val htmlTag = matchResult.groups[1]?.value
+            val ltrRun = matchResult.groups[2]?.value
+            
+            when {
+                htmlTag != null -> {
+                    // Do not isolate HTML tags! Return them exactly as they are.
+                    htmlTag
+                }
+                ltrRun != null -> {
+                    // This is a normal Latin run, isolate it!
+                    if (ltrRun.startsWith(LRI) || ltrRun.all { it.isDigit() }) {
+                        ltrRun
+                    } else {
+                        "$LRI$ltrRun$PDI"
+                    }
+                }
+                else -> matchResult.value
             }
         }
     }

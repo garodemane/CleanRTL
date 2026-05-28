@@ -1450,7 +1450,8 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
     val builder = AnnotatedString.Builder()
     var index = 0
 
-    val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`)")
+    // Match bold, italic, inline code, or HTML span tags
+    val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>)")
     val matches = regex.findAll(input)
 
     for (match in matches) {
@@ -1462,18 +1463,54 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
         when {
             matchedText.startsWith("**") && matchedText.endsWith("**") -> {
                 builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                builder.append(matchedText.substring(2, matchedText.length - 2))
+                builder.append(parseMarkdownInlineStyles(matchedText.substring(2, matchedText.length - 2), codeBgColor))
                 builder.pop()
             }
             matchedText.startsWith("*") && matchedText.endsWith("*") -> {
                 builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                builder.append(matchedText.substring(1, matchedText.length - 1))
+                builder.append(parseMarkdownInlineStyles(matchedText.substring(1, matchedText.length - 1), codeBgColor))
                 builder.pop()
             }
             matchedText.startsWith("`") && matchedText.endsWith("`") -> {
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBgColor))
                 builder.append(matchedText.substring(1, matchedText.length - 1))
                 builder.pop()
+            }
+            matchedText.startsWith("<") && matchedText.endsWith(">") -> {
+                val spanRegex = Regex("<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>(.*?)<\\s*/\\s*span\\s*>")
+                val spanMatch = spanRegex.matchEntire(matchedText)
+                if (spanMatch != null) {
+                    val styleStr = spanMatch.groupValues[1]
+                    val innerText = spanMatch.groupValues[2]
+
+                    var color: Color? = null
+                    var fontSize: androidx.compose.ui.unit.TextUnit? = null
+
+                    styleStr.split(";").forEach { stylePart ->
+                        val parts = stylePart.split(":")
+                        if (parts.size == 2) {
+                            val key = parts[0].trim().lowercase()
+                            val value = parts[1].trim()
+                            if (key == "color") {
+                                color = parseHtmlColor(value)
+                            } else if (key == "font-size") {
+                                fontSize = parseHtmlFontSize(value)
+                            }
+                        }
+                    }
+
+                    builder.pushStyle(SpanStyle(
+                        color = color ?: Color.Unspecified,
+                        fontSize = fontSize ?: androidx.compose.ui.unit.TextUnit.Unspecified
+                    ))
+                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor))
+                    builder.pop()
+                } else {
+                    builder.append(matchedText)
+                }
+            }
+            else -> {
+                builder.append(matchedText)
             }
         }
         index = match.range.last + 1
@@ -1485,4 +1522,63 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
 
     return builder.toAnnotatedString()
 }
+
+fun parseHtmlColor(colorStr: String): Color? {
+    val clean = colorStr.trim().lowercase()
+    val colorMap = mapOf(
+        "red" to Color.Red,
+        "green" to Color(0xFF00FF00),
+        "blue" to Color.Blue,
+        "yellow" to Color.Yellow,
+        "black" to Color.Black,
+        "white" to Color.White,
+        "gray" to Color.Gray,
+        "grey" to Color.Gray,
+        "cyan" to Color.Cyan,
+        "magenta" to Color.Magenta
+    )
+    if (colorMap.containsKey(clean)) {
+        return colorMap[clean]
+    }
+
+    val hex = clean.removePrefix("#")
+    return try {
+        if (hex.length == 3) {
+            val r = hex[0].toString().repeat(2).toInt(16)
+            val g = hex[1].toString().repeat(2).toInt(16)
+            val b = hex[2].toString().repeat(2).toInt(16)
+            Color(red = r, green = g, blue = b)
+        } else if (hex.length == 6) {
+            val r = hex.substring(0, 2).toInt(16)
+            val g = hex.substring(2, 4).toInt(16)
+            val b = hex.substring(4, 6).toInt(16)
+            Color(red = r, green = g, blue = b)
+        } else if (hex.length == 8) {
+            val a = hex.substring(0, 2).toInt(16)
+            val r = hex.substring(2, 4).toInt(16)
+            val g = hex.substring(4, 6).toInt(16)
+            val b = hex.substring(6, 8).toInt(16)
+            Color(red = r, green = g, blue = b, alpha = a)
+        } else {
+            null
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+fun parseHtmlFontSize(sizeStr: String): androidx.compose.ui.unit.TextUnit? {
+    val clean = sizeStr.trim().lowercase()
+    val numberPart = clean.filter { it.isDigit() || it == '.' }
+    val num = numberPart.toFloatOrNull() ?: return null
+    return when {
+        clean.endsWith("px") -> num.sp
+        clean.endsWith("sp") -> num.sp
+        clean.endsWith("pt") -> (num * 1.33f).sp
+        clean.endsWith("em") -> (num * 16f).sp
+        clean.endsWith("%") -> (num * 0.16f).sp
+        else -> num.sp
+    }
+}
+
 

@@ -145,4 +145,16 @@ class TextRepairProcessorTest {
         assertTrue(!TextRepairProcessor.isParagraphRtl(overriddenToLtr))
         assertTrue(TextRepairProcessor.isParagraphRtl(overriddenToRtl))
     }
+
+    @Test
+    fun testHtmlSpanHandling() {
+        val rawInput = "نمودار پیشرفت شامل <span style=\"color:#00ff00\">2020</span> است."
+        
+        // isolateLtrSubRuns should NOT wrap HTML tags or style attributes in bidi control marks
+        val isolated = TextRepairProcessor.isolateLtrSubRuns(rawInput)
+        assertEquals("HTML span tags should not be isolated", rawInput, isolated)
+        
+        // isParagraphRtl should correctly identify the paragraph as RTL
+        assertTrue("RTL text with inline HTML spans should be detected as RTL", TextRepairProcessor.isParagraphRtl(rawInput))
+    }
 }

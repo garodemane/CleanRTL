@@ -11,6 +11,11 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextDirectionHeuristics
 import android.text.TextPaint
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.AbsoluteSizeSpan
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import com.google.hamahang.core.bidi.TextRepairProcessor
 import java.io.OutputStream
 
@@ -166,6 +171,7 @@ object NativePdfExporter {
                             pageWidth = pageWidth,
                             regularTypeface = regularTypeface,
                             boldTypeface = boldTypeface,
+                            italicTypeface = italicTypeface,
                             isTableRtl = TextRepairProcessor.isParagraphRtl(cleanParagraph),
                             onNewPage = {
                                 pdfDocument.finishPage(currentPage)
@@ -249,10 +255,13 @@ object NativePdfExporter {
                 isQuote = true
             }
 
-            // Bold/Italic replacements for simple inline formatting
-            displayText = displayText.replace(Regex("\\*\\*(.*?)\\*\\*"), "$1")
-            displayText = displayText.replace(Regex("\\*(.*?)\\*"), "$1")
-            displayText = displayText.replace(Regex("`(.*?)`"), "$1")
+            // Parse markdown and HTML style tags into spanned text
+            val spannedText = parseMarkdownAndHtmlToSpannable(
+                displayText,
+                currentTextSize,
+                boldTypeface,
+                italicTypeface
+            )
 
             // Setup Paint
             textPaint.apply {
@@ -270,9 +279,9 @@ object NativePdfExporter {
             val layoutWidth = (printableWidth - indentMargin).toInt()
 
             val textLayout = StaticLayout.Builder.obtain(
-                displayText,
+                spannedText,
                 0,
-                displayText.length,
+                spannedText.length,
                 textPaint,
                 layoutWidth
             )
@@ -447,6 +456,7 @@ object NativePdfExporter {
         pageWidth: Int,
         regularTypeface: Typeface,
         boldTypeface: Typeface,
+        italicTypeface: Typeface,
         isTableRtl: Boolean,
         onNewPage: () -> Canvas
     ): Float {
@@ -493,19 +503,21 @@ object NativePdfExporter {
 
             for (colIdx in 0 until colCount) {
                 val cellText = rowCells.getOrNull(colIdx) ?: ""
-                val cleanCellText = cellText
-                    .replace(Regex("\\*\\*(.*?)\\*\\*"), "$1")
-                    .replace(Regex("\\*(.*?)\\*"), "$1")
-                    .replace(Regex("`(.*?)`"), "$1")
+                val cellSpanned = parseMarkdownAndHtmlToSpannable(
+                    cellText,
+                    paint.textSize,
+                    boldTypeface,
+                    italicTypeface
+                )
 
-                val isRtl = TextRepairProcessor.isParagraphRtl(cleanCellText)
+                val isRtl = TextRepairProcessor.isParagraphRtl(cellText)
                 val directionHeuristic = if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
 
                 val layoutWidth = (colWidth - 16f).toInt().coerceAtLeast(10)
                 val cellLayout = StaticLayout.Builder.obtain(
-                    cleanCellText,
+                    cellSpanned,
                     0,
-                    cleanCellText.length,
+                    cellSpanned.length,
                     paint,
                     layoutWidth
                 )
@@ -584,5 +596,151 @@ object NativePdfExporter {
         }
 
         return yOffset
+    }
+
+    private fun parseMarkdownAndHtmlToSpannable(
+        input: String,
+        baseFontSize: Float,
+        boldTypeface: Typeface,
+        italicTypeface: Typeface
+    ): Spanned {
+        val builder = SpannableStringBuilder()
+        var index = 0
+
+        // Match bold, italic, inline code, or HTML span tags
+        val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>)")
+        val matches = regex.findAll(input)
+
+        for (match in matches) {
+            if (match.range.first > index) {
+                builder.append(input.substring(index, match.range.first))
+            }
+
+            val matchedText = match.value
+            when {
+                matchedText.startsWith("**") && matchedText.endsWith("**") -> {
+                    val start = builder.length
+                    val content = matchedText.substring(2, matchedText.length - 2)
+                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
+                    builder.setSpan(StyleSpan(Typeface.BOLD), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedText.startsWith("*") && matchedText.endsWith("*") -> {
+                    val start = builder.length
+                    val content = matchedText.substring(1, matchedText.length - 1)
+                    builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
+                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedText.startsWith("`") && matchedText.endsWith("`") -> {
+                    val start = builder.length
+                    val content = matchedText.substring(1, matchedText.length - 1)
+                    builder.append(content)
+                    // Simple plain text fallback for monospace code segments inside paragraphs
+                }
+                matchedText.startsWith("<") && matchedText.endsWith(">") -> {
+                    val spanRegex = Regex("<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>(.*?)<\\s*/\\s*span\\s*>")
+                    val spanMatch = spanRegex.matchEntire(matchedText)
+                    if (spanMatch != null) {
+                        val styleStr = spanMatch.groupValues[1]
+                        val innerText = spanMatch.groupValues[2]
+
+                        var color: Int? = null
+                        var fontSizePx: Float? = null
+
+                        styleStr.split(";").forEach { stylePart ->
+                            val parts = stylePart.split(":")
+                            if (parts.size == 2) {
+                                val key = parts[0].trim().lowercase()
+                                val value = parts[1].trim()
+                                if (key == "color") {
+                                    color = parseHtmlColorToInt(value)
+                                } else if (key == "font-size") {
+                                    fontSizePx = parseHtmlFontSizeToPx(value, baseFontSize)
+                                }
+                            }
+                        }
+
+                        val start = builder.length
+                        builder.append(parseMarkdownAndHtmlToSpannable(innerText, fontSizePx ?: baseFontSize, boldTypeface, italicTypeface))
+
+                        if (color != null) {
+                            builder.setSpan(ForegroundColorSpan(color!!), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                        if (fontSizePx != null) {
+                            builder.setSpan(AbsoluteSizeSpan(fontSizePx!!.toInt()), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                    } else {
+                        builder.append(matchedText)
+                    }
+                }
+                else -> {
+                    builder.append(matchedText)
+                }
+            }
+            index = match.range.last + 1
+        }
+
+        if (index < input.length) {
+            builder.append(input.substring(index))
+        }
+
+        return builder
+    }
+
+    private fun parseHtmlColorToInt(colorStr: String): Int? {
+        val clean = colorStr.trim().lowercase()
+        val colorMap = mapOf(
+            "red" to Color.RED,
+            "green" to Color.rgb(0, 255, 0),
+            "blue" to Color.BLUE,
+            "yellow" to Color.YELLOW,
+            "black" to Color.BLACK,
+            "white" to Color.WHITE,
+            "gray" to Color.GRAY,
+            "grey" to Color.GRAY,
+            "cyan" to Color.CYAN,
+            "magenta" to Color.MAGENTA
+        )
+        if (colorMap.containsKey(clean)) {
+            return colorMap[clean]
+        }
+
+        val hex = clean.removePrefix("#")
+        return try {
+            if (hex.length == 3) {
+                val r = hex[0].toString().repeat(2).toInt(16)
+                val g = hex[1].toString().repeat(2).toInt(16)
+                val b = hex[2].toString().repeat(2).toInt(16)
+                Color.rgb(r, g, b)
+            } else if (hex.length == 6) {
+                val r = hex.substring(0, 2).toInt(16)
+                val g = hex.substring(2, 4).toInt(16)
+                val b = hex.substring(4, 6).toInt(16)
+                Color.rgb(r, g, b)
+            } else if (hex.length == 8) {
+                val a = hex.substring(0, 2).toInt(16)
+                val r = hex.substring(2, 4).toInt(16)
+                val g = hex.substring(4, 6).toInt(16)
+                val b = hex.substring(6, 8).toInt(16)
+                Color.argb(a, r, g, b)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun parseHtmlFontSizeToPx(sizeStr: String, baseFontSize: Float): Float? {
+        val clean = sizeStr.trim().lowercase()
+        val numberPart = clean.filter { it.isDigit() || it == '.' }
+        val num = numberPart.toFloatOrNull() ?: return null
+        return when {
+            clean.endsWith("px") -> num
+            clean.endsWith("sp") -> num
+            clean.endsWith("pt") -> num * 1.33f
+            clean.endsWith("em") -> num * baseFontSize
+            clean.endsWith("%") -> num * 0.01f * baseFontSize
+            else -> num
+        }
     }
 }
