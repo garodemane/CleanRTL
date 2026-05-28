@@ -716,8 +716,8 @@ object NativePdfExporter {
         }
 
         // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
-        // Compiled with case insensitivity (?i), dot matches all (?s), and Unicode character class (?U)
-        val regex = Regex("(?isU)(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[^>]+>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*>)")
+        // Compiled with case insensitivity (?i) and dot matches all (?s), with explicit unicode spaces matching
+        val regex = Regex("(?is)(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[\\s\\u00A0]+style[\\s\\u00A0]*=[\\s\\u00A0]*[^>]+>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[\\s\\u00A0]+[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
         val matches = regex.findAll(input)
 
         for (match in matches) {
@@ -760,7 +760,7 @@ object NativePdfExporter {
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("<font") || (matchedTextLower.startsWith("<") && matchedTextLower.contains("font")) -> {
-                    val fontRegex = Regex("(?isU)<\\s*font\\s+([^>]*)>(.*?)<\\s*/\\s*font\\s*>")
+                    val fontRegex = Regex("(?is)<[\\s\\u00A0]*font[\\s\\u00A0]+([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
                     val fontMatch = fontRegex.matchEntire(matchedText)
                     if (fontMatch != null) {
                         val attrsStr = fontMatch.groupValues[1]
@@ -769,13 +769,13 @@ object NativePdfExporter {
                         var color: Int? = null
                         var fontSizePx: Float? = null
 
-                        val colorMatch = Regex("(?iU)color\\s*=\\s*([^\\s>]+)").find(attrsStr)
+                        val colorMatch = Regex("(?i)color[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+)").find(attrsStr)
                         if (colorMatch != null) {
                             val colorValue = cleanQuotes(colorMatch.groupValues[1])
                             color = parseHtmlColorToInt(colorValue)
                         }
 
-                        val sizeMatch = Regex("(?iU)size\\s*=\\s*([^\\s>]+)").find(attrsStr)
+                        val sizeMatch = Regex("(?i)size[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+)").find(attrsStr)
                         if (sizeMatch != null) {
                             val sizeValue = cleanQuotes(sizeMatch.groupValues[1])
                             fontSizePx = parseHtmlFontSizeAttributeToPx(sizeValue, baseFontSize)
@@ -795,7 +795,7 @@ object NativePdfExporter {
                     }
                 }
                 matchedTextLower.startsWith("<span") || (matchedTextLower.startsWith("<") && matchedTextLower.contains("span")) -> {
-                    val spanRegex = Regex("(?isU)<\\s*span\\s+style\\s*=\\s*([^>]+)>(.*?)<\\s*/\\s*span\\s*>")
+                    val spanRegex = Regex("(?is)<[\\s\\u00A0]*span[\\s\\u00A0]+style[\\s\\u00A0]*=[\\s\\u00A0]*([^>]+)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
                     val spanMatch = spanRegex.matchEntire(matchedText)
                     if (spanMatch != null) {
                         val rawStyle = spanMatch.groupValues[1]
@@ -808,8 +808,8 @@ object NativePdfExporter {
                         styleStr.split(";").forEach { stylePart ->
                             val parts = stylePart.split(":")
                             if (parts.size == 2) {
-                                val key = parts[0].replace(Regex("(?U)\\s+"), "").trim().lowercase()
-                                val value = parts[1].replace(Regex("(?U)\\s+"), " ").trim()
+                                val key = parts[0].replace(Regex("[\\s\\u00A0]+"), "").trim().lowercase()
+                                val value = parts[1].replace(Regex("[\\s\\u00A0]+"), " ").trim()
                                 if (key == "color") {
                                     color = parseHtmlColorToInt(value)
                                 } else if (key == "font-size") {
