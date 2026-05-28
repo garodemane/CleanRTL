@@ -728,42 +728,43 @@ object NativePdfExporter {
             }
 
             val matchedText = match.value
-            val matchedTextLower = matchedText.trim().lowercase()
+            val matchedTextClean = matchedText.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            val matchedTextLower = matchedTextClean.trim().lowercase()
             when {
-                matchedText.startsWith("**") && matchedText.endsWith("**") -> {
+                matchedTextLower.startsWith("**") && matchedTextLower.endsWith("**") -> {
                     val start = builder.length
-                    val content = matchedText.substring(2, matchedText.length - 2)
+                    val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
                     builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
                     builder.setSpan(StyleSpan(Typeface.BOLD), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
-                matchedText.startsWith("*") && matchedText.endsWith("*") -> {
+                matchedTextLower.startsWith("*") && matchedTextLower.endsWith("*") -> {
                     val start = builder.length
-                    val content = matchedText.substring(1, matchedText.length - 1)
+                    val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
                     builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface))
                     builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
-                matchedText.startsWith("`") && matchedText.endsWith("`") -> {
+                matchedTextLower.startsWith("`") && matchedTextLower.endsWith("`") -> {
                     val start = builder.length
-                    val content = matchedText.substring(1, matchedText.length - 1)
+                    val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
                     builder.append(content)
                 }
-                matchedText.startsWith("$$") && matchedText.endsWith("$$") -> {
+                matchedTextLower.startsWith("$$") && matchedTextLower.endsWith("$$") -> {
                     val start = builder.length
-                    val content = matchedText.substring(2, matchedText.length - 2).replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-                    builder.append(content)
-                    builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                }
-                matchedText.startsWith("$") && matchedText.endsWith("$") -> {
-                    val start = builder.length
-                    val content = matchedText.substring(1, matchedText.length - 1).replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+                    val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
                     builder.append(content)
                     builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
-                matchedTextLower.startsWith("<font") || (matchedTextLower.startsWith("<") && matchedTextLower.contains("font")) -> {
+                matchedTextLower.startsWith("$") && matchedTextLower.endsWith("$") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                    builder.append(content)
+                    builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<font") || matchedTextLower.contains("font") -> {
                     val fontRegex = Regex("(?is)<[\\s\\u00A0]*font([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
-                    val fontMatch = fontRegex.matchEntire(matchedText)
+                    val fontMatch = fontRegex.matchEntire(matchedTextClean)
                     if (fontMatch != null) {
                         val attrsStr = fontMatch.groupValues[1]
                         val innerText = fontMatch.groupValues[2]
@@ -796,15 +797,17 @@ object NativePdfExporter {
                         builder.append(matchedText)
                     }
                 }
-                matchedTextLower.startsWith("<span") || (matchedTextLower.startsWith("<") && matchedTextLower.contains("span")) -> {
+                matchedTextLower.startsWith("<span") || matchedTextLower.contains("span") -> {
                     val spanRegex = Regex("(?is)<[\\s\\u00A0]*span([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
-                    val spanMatch = spanRegex.matchEntire(matchedText)
+                    val spanMatch = spanRegex.matchEntire(matchedTextClean)
                     if (spanMatch != null) {
                         val attrsStr = spanMatch.groupValues[1]
                         val innerText = spanMatch.groupValues[2]
 
                         var color: Int? = null
                         var fontSizePx: Float? = null
+                        var isBold = false
+                        var isItalic = false
 
                         val styleMatch = Regex("(?i)style[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                         if (styleMatch != null) {
@@ -820,6 +823,14 @@ object NativePdfExporter {
                                         color = parseHtmlColorToInt(value)
                                     } else if (key == "font-size") {
                                         fontSizePx = parseHtmlFontSizeToPx(value, baseFontSize)
+                                    } else if (key == "font-weight") {
+                                        if (value.lowercase() == "bold" || value.lowercase() == "700" || value.lowercase() == "800") {
+                                            isBold = true
+                                        }
+                                    } else if (key == "font-style") {
+                                        if (value.lowercase() == "italic") {
+                                            isItalic = true
+                                        }
                                     }
                                 }
                             }
@@ -833,6 +844,13 @@ object NativePdfExporter {
                         }
                         if (fontSizePx != null) {
                             builder.setSpan(AbsoluteSizeSpan(fontSizePx!!.toInt()), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                        if (isBold && isItalic) {
+                            builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        } else if (isBold) {
+                            builder.setSpan(StyleSpan(Typeface.BOLD), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        } else if (isItalic) {
+                            builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         }
                     } else {
                         builder.append(matchedText)

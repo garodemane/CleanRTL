@@ -2045,36 +2045,42 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
         }
 
         val matchedText = match.value
-        val matchedTextLower = matchedText.trim().lowercase()
+        val matchedTextClean = matchedText.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+        val matchedTextLower = matchedTextClean.trim().lowercase()
         when {
-            matchedText.startsWith("**") && matchedText.endsWith("**") -> {
+            matchedTextLower.startsWith("**") && matchedTextLower.endsWith("**") -> {
                 builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                builder.append(parseMarkdownInlineStyles(matchedText.substring(2, matchedText.length - 2), codeBgColor))
+                val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor))
                 builder.pop()
             }
-            matchedText.startsWith("*") && matchedText.endsWith("*") -> {
+            matchedTextLower.startsWith("*") && matchedTextLower.endsWith("*") -> {
                 builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                builder.append(parseMarkdownInlineStyles(matchedText.substring(1, matchedText.length - 1), codeBgColor))
+                val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor))
                 builder.pop()
             }
-            matchedText.startsWith("`") && matchedText.endsWith("`") -> {
+            matchedTextLower.startsWith("`") && matchedTextLower.endsWith("`") -> {
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBgColor))
-                builder.append(matchedText.substring(1, matchedText.length - 1))
+                val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                builder.append(content)
                 builder.pop()
             }
-            matchedText.startsWith("$$") && matchedText.endsWith("$$") -> {
+            matchedTextLower.startsWith("$$") && matchedTextLower.endsWith("$$") -> {
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Serif, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold))
-                builder.append(matchedText.substring(2, matchedText.length - 2))
+                val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
+                builder.append(content)
                 builder.pop()
             }
-            matchedText.startsWith("$") && matchedText.endsWith("$") -> {
+            matchedTextLower.startsWith("$") && matchedTextLower.endsWith("$") -> {
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Serif, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold))
-                builder.append(matchedText.substring(1, matchedText.length - 1))
+                val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                builder.append(content)
                 builder.pop()
             }
-            matchedTextLower.startsWith("<font") || (matchedTextLower.startsWith("<") && matchedTextLower.contains("font")) -> {
+            matchedTextLower.startsWith("<font") || matchedTextLower.contains("font") -> {
                 val fontRegex = Regex("(?is)<[\\s\\u00A0]*font([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
-                val fontMatch = fontRegex.matchEntire(matchedText)
+                val fontMatch = fontRegex.matchEntire(matchedTextClean)
                 if (fontMatch != null) {
                     val attrsStr = fontMatch.groupValues[1]
                     val innerText = fontMatch.groupValues[2]
@@ -2104,15 +2110,17 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                     builder.append(matchedText)
                 }
             }
-            matchedTextLower.startsWith("<span") || (matchedTextLower.startsWith("<") && matchedTextLower.contains("span")) -> {
+            matchedTextLower.startsWith("<span") || matchedTextLower.contains("span") -> {
                 val spanRegex = Regex("(?is)<[\\s\\u00A0]*span([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
-                val spanMatch = spanRegex.matchEntire(matchedText)
+                val spanMatch = spanRegex.matchEntire(matchedTextClean)
                 if (spanMatch != null) {
                     val attrsStr = spanMatch.groupValues[1]
                     val innerText = spanMatch.groupValues[2]
 
                     var color: Color? = null
                     var fontSize: androidx.compose.ui.unit.TextUnit? = null
+                    var fontWeight: FontWeight? = null
+                    var fontStyle: FontStyle? = null
 
                     val styleMatch = Regex("(?i)style[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                     if (styleMatch != null) {
@@ -2128,6 +2136,14 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                                     color = parseHtmlColor(value)
                                 } else if (key == "font-size") {
                                     fontSize = parseHtmlFontSize(value)
+                                } else if (key == "font-weight") {
+                                    if (value.lowercase() == "bold" || value.lowercase() == "700" || value.lowercase() == "800") {
+                                        fontWeight = FontWeight.Bold
+                                    }
+                                } else if (key == "font-style") {
+                                    if (value.lowercase() == "italic") {
+                                        fontStyle = FontStyle.Italic
+                                    }
                                 }
                             }
                         }
@@ -2135,7 +2151,9 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
 
                     builder.pushStyle(SpanStyle(
                         color = color ?: Color.Unspecified,
-                        fontSize = fontSize ?: androidx.compose.ui.unit.TextUnit.Unspecified
+                        fontSize = fontSize ?: androidx.compose.ui.unit.TextUnit.Unspecified,
+                        fontWeight = fontWeight,
+                        fontStyle = fontStyle
                     ))
                     builder.append(parseMarkdownInlineStyles(innerText, codeBgColor))
                     builder.pop()
