@@ -13,9 +13,9 @@ object Loc {
     
     private val mapFa = mapOf(
         "app_title" to "CleanRTL",
-        "editor_tab_raw" to "متن خام (Raw)",
-        "editor_tab_corrected" to "اصلاح‌شده (Corrected)",
-        "editor_tab_preview" to "پیش‌نمایش (Preview)",
+        "editor_tab_raw" to "متن خام",
+        "editor_tab_corrected" to "اصلاح‌شده",
+        "editor_tab_preview" to "پیش‌نمایش",
         "input_label" to "متن ورودی غیر هم‌تراز شما",
         "output_label" to "خروجی اصلاح شده با هم‌ترازی صحیح",
         "preview_label" to "پیش‌نمایش زنده مارک‌داون سند",
