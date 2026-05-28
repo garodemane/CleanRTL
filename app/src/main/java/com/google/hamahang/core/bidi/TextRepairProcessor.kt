@@ -23,6 +23,7 @@ object TextRepairProcessor {
         // Split text by newlines safely supporting Windows, Linux, Mac endings
         val paragraphs = input.split(Regex("\\R"))
         var inCodeBlock = false
+        var inMathBlock = false
         val repairedParagraphs = paragraphs.map { paragraph ->
             val trimmed = paragraph.trim()
             if (trimmed.startsWith("```")) {
@@ -35,12 +36,44 @@ object TextRepairProcessor {
                 return@map paragraph
             }
 
+            // Robustly strip any leading/trailing bidi control characters for math block checks
+            val cleanTrimmed = trimmed
+                .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
+                .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                .trim()
+
+            if (cleanTrimmed.startsWith("$$")) {
+                if (cleanTrimmed.endsWith("$$") && cleanTrimmed.length > 2) {
+                    // Single line math block
+                    return@map paragraph
+                } else {
+                    inMathBlock = !inMathBlock
+                    return@map paragraph
+                }
+            }
+
+            if (inMathBlock) {
+                // Return math block lines completely untouched!
+                return@map paragraph
+            }
+
             if (paragraph.isBlank()) return@map paragraph
 
             val isRtl = isParagraphRtl(paragraph)
             var result = paragraph
 
             if (isRtl) {
+                // Protect inline math runs before doing bidi repair
+                val mathPlaceholderMap = mutableListOf<String>()
+                val mathRegex = Regex("(\\$\\$\\s*.*?\\s*\\$\\$|\\$\\s*.*?\\s*\\$)")
+
+                // Replace inline math runs with alphanumeric placeholders to avoid bidi corruption
+                result = mathRegex.replace(result) { matchResult ->
+                    val placeholder = "MATHPLCHLDR${mathPlaceholderMap.size}"
+                    mathPlaceholderMap.add(matchResult.value)
+                    placeholder
+                }
+
                 // Step 1: Normalize Persian glyphs if enabled
                 if (enableNormalization) {
                     result = normalizeCharacters(result)
@@ -51,6 +84,12 @@ object TextRepairProcessor {
 
                 // Step 3: Handle punctuation at sentence ends
                 result = fixTrailingPunctuation(result)
+
+                // Restore inline math runs from placeholders
+                mathPlaceholderMap.forEachIndexed { index, originalMath ->
+                    val placeholder = "MATHPLCHLDR$index"
+                    result = result.replace(placeholder, originalMath)
+                }
             }
 
             result

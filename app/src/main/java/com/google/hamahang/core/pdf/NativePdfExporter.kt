@@ -46,6 +46,7 @@ object NativePdfExporter {
         val boldTypeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         val italicTypeface = Typeface.create(Typeface.SANS_SERIF, Typeface.ITALIC)
         val monospaceTypeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+        val serifItalicTypeface = Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC)
 
         // TextPaint configurations
         val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -65,15 +66,50 @@ object NativePdfExporter {
 
         var inCodeBlock = false
         val codeBlockLines = mutableListOf<String>()
+        var inMathBlock = false
+        val mathBlockLines = mutableListOf<String>()
 
         var idx = 0
         while (idx < paragraphs.size) {
             val paragraph = paragraphs[idx]
-            val trimmed = paragraph.trim()
 
-            // 1. Code Block parsing (```)
-            if (trimmed.startsWith("```")) {
-                if (inCodeBlock) {
+            // 1. Math block accumulation check first
+            if (inMathBlock) {
+                val trimmed = paragraph.trim()
+                val cleanTrimmed = trimmed
+                    .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
+                    .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                    .trim()
+                if (cleanTrimmed.endsWith("$$")) {
+                    val cleanLine = cleanTrimmed.removeSuffix("$$")
+                    if (cleanLine.isNotEmpty()) {
+                        mathBlockLines.add(cleanLine)
+                    }
+                    yOffset = drawBlockMath(
+                        canvas, mathBlockLines, textPaint, serifItalicTypeface,
+                        margin, yOffset, printableWidth, pageHeight - margin,
+                        onNewPage = {
+                            pdfDocument.finishPage(currentPage)
+                            currentPageNumber++
+                            pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                            currentPage = pdfDocument.startPage(pageInfo)
+                            canvas = currentPage.canvas
+                            yOffset = margin
+                            canvas
+                        }
+                    )
+                    mathBlockLines.clear()
+                    inMathBlock = false
+                } else {
+                    mathBlockLines.add(paragraph)
+                }
+                idx++
+                continue
+            }
+
+            if (inCodeBlock) {
+                val trimmed = paragraph.trim()
+                if (trimmed.startsWith("```")) {
                     // Draw accumulated code block
                     yOffset = drawCodeBlock(
                         canvas, codeBlockLines, textPaint, monospaceTypeface,
@@ -91,20 +127,56 @@ object NativePdfExporter {
                     codeBlockLines.clear()
                     inCodeBlock = false
                 } else {
-                    inCodeBlock = true
+                    codeBlockLines.add(paragraph)
                 }
-                idx++
-                continue
-            }
-
-            if (inCodeBlock) {
-                codeBlockLines.add(paragraph)
                 idx++
                 continue
             }
 
             if (paragraph.isBlank()) {
                 yOffset += baseFontSize * 0.8f
+                idx++
+                continue
+            }
+
+            val trimmed = paragraph.trim()
+
+            // 2. Math Block parsing ($$)
+            val cleanTrimmed = trimmed
+                .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
+                .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                .trim()
+
+            if (cleanTrimmed.startsWith("$$")) {
+                if (cleanTrimmed.endsWith("$$") && cleanTrimmed.length > 2) {
+                    val cleanFormula = cleanTrimmed.removePrefix("$$").removeSuffix("$$").trim()
+                    yOffset = drawBlockMath(
+                        canvas, listOf(cleanFormula), textPaint, serifItalicTypeface,
+                        margin, yOffset, printableWidth, pageHeight - margin,
+                        onNewPage = {
+                            pdfDocument.finishPage(currentPage)
+                            currentPageNumber++
+                            pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                            currentPage = pdfDocument.startPage(pageInfo)
+                            canvas = currentPage.canvas
+                            yOffset = margin
+                            canvas
+                        }
+                    )
+                } else {
+                    inMathBlock = true
+                    val cleanLine = cleanTrimmed.removePrefix("$$")
+                    if (cleanLine.isNotEmpty()) {
+                        mathBlockLines.add(cleanLine)
+                    }
+                }
+                idx++
+                continue
+            }
+
+            // 3. Code Block boundary check
+            if (trimmed.startsWith("```")) {
+                inCodeBlock = true
                 idx++
                 continue
             }
@@ -332,8 +404,17 @@ object NativePdfExporter {
 
         // Finish accumulated code block if document ends inside it
         if (inCodeBlock && codeBlockLines.isNotEmpty()) {
-            drawCodeBlock(
+            yOffset = drawCodeBlock(
                 canvas, codeBlockLines, textPaint, monospaceTypeface,
+                margin, yOffset, printableWidth, pageHeight - margin,
+                onNewPage = { canvas }
+            )
+        }
+
+        // Finish accumulated math block if document ends inside it
+        if (inMathBlock && mathBlockLines.isNotEmpty()) {
+            drawBlockMath(
+                canvas, mathBlockLines, textPaint, serifItalicTypeface,
                 margin, yOffset, printableWidth, pageHeight - margin,
                 onNewPage = { canvas }
             )
@@ -609,8 +690,8 @@ object NativePdfExporter {
         val builder = SpannableStringBuilder()
         var index = 0
 
-        // Match bold, italic, inline code, or HTML span tags
-        val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>)")
+        // Match bold, italic, inline code, inline math, or HTML span tags
+        val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>)")
         val matches = regex.findAll(input)
 
         for (match in matches) {
@@ -636,7 +717,20 @@ object NativePdfExporter {
                     val start = builder.length
                     val content = matchedText.substring(1, matchedText.length - 1)
                     builder.append(content)
-                    // Simple plain text fallback for monospace code segments inside paragraphs
+                }
+                matchedText.startsWith("$$") && matchedText.endsWith("$$") -> {
+                    val start = builder.length
+                    val content = matchedText.substring(2, matchedText.length - 2)
+                    builder.append(content)
+                    builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedText.startsWith("$") && matchedText.endsWith("$") -> {
+                    val start = builder.length
+                    val content = matchedText.substring(1, matchedText.length - 1)
+                    builder.append(content)
+                    builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedText.startsWith("<") && matchedText.endsWith(">") -> {
                     val spanRegex = Regex("<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>(.*?)<\\s*/\\s*span\\s*>")
@@ -919,5 +1013,68 @@ object NativePdfExporter {
         }
 
         return ssb
+    }
+
+    private fun drawBlockMath(
+        canvas: Canvas,
+        lines: List<String>,
+        paint: TextPaint,
+        typeface: Typeface,
+        margin: Float,
+        yStart: Float,
+        width: Float,
+        maxHeight: Float,
+        onNewPage: () -> Canvas
+    ): Float {
+        var currentCanvas = canvas
+        var yOffset = yStart
+        val formulaText = lines.joinToString("\n").trim()
+
+        paint.apply {
+            textSize = 12f
+            this.typeface = typeface
+            color = Color.BLACK
+        }
+
+        val textLayout = StaticLayout.Builder.obtain(
+            formulaText,
+            0,
+            formulaText.length,
+            paint,
+            (width - 40f).toInt()
+        )
+        .setAlignment(Layout.Alignment.ALIGN_CENTER) // Centered formula layout
+        .setTextDirection(TextDirectionHeuristics.LTR)
+        .setLineSpacing(0f, 1.2f)
+        .build()
+
+        val blockHeight = textLayout.height + 24f
+
+        if (yOffset + blockHeight > maxHeight) {
+            currentCanvas = onNewPage()
+            yOffset = margin
+        }
+
+        // Draw a premium soft light background card for mathematical formula
+        val bgPaint = Paint().apply {
+            color = Color.rgb(245, 246, 249) // Soft grey background
+            style = Paint.Style.FILL
+        }
+        val borderPaint = Paint().apply {
+            color = Color.rgb(220, 224, 230) // Soft border
+            strokeWidth = 1f
+            style = Paint.Style.STROKE
+        }
+        val cardRect = RectF(margin, yOffset, margin + width, yOffset + blockHeight)
+        currentCanvas.drawRoundRect(cardRect, 8f, 8f, bgPaint)
+        currentCanvas.drawRoundRect(cardRect, 8f, 8f, borderPaint)
+
+        // Draw Formula text centered
+        currentCanvas.save()
+        currentCanvas.translate(margin + 20f, yOffset + 12f)
+        textLayout.draw(currentCanvas)
+        currentCanvas.restore()
+
+        return yOffset + blockHeight + 12f
     }
 }

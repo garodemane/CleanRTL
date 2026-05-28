@@ -53,6 +53,9 @@ import com.google.hamahang.theme.CoralStart
 import com.google.hamahang.theme.RoyalPurple
 import java.io.File
 import java.io.FileOutputStream
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.ui.viewinterop.AndroidView
 
 @Composable
 fun CurveHeader(modifier: Modifier = Modifier) {
@@ -896,10 +899,34 @@ fun MarkdownPreviewPane(
             val paragraphs = text.split("\n")
             var inCodeBlock = false
             val codeLines = mutableListOf<String>()
+            var inMathBlock = false
+            val mathLines = mutableListOf<String>()
 
             var idx = 0
             while (idx < paragraphs.size) {
                 val paragraph = paragraphs[idx]
+
+                if (inMathBlock) {
+                    val trimmed = paragraph.trim()
+                    val cleanTrimmed = trimmed
+                        .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
+                        .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                        .trim()
+                    if (cleanTrimmed.endsWith("$$")) {
+                        val cleanLine = cleanTrimmed.removeSuffix("$$")
+                        if (cleanLine.isNotEmpty()) {
+                            mathLines.add(cleanLine)
+                        }
+                        val fullFormula = mathLines.joinToString("\n")
+                        ComposeMathBlock(formula = fullFormula, fontSize = (baseFontSize * 1.1).sp)
+                        mathLines.clear()
+                        inMathBlock = false
+                    } else {
+                        mathLines.add(paragraph)
+                    }
+                    idx++
+                    continue
+                }
 
                 if (inCodeBlock) {
                     val trimmed = paragraph.trim()
@@ -928,6 +955,28 @@ fun MarkdownPreviewPane(
                 }
                 val cleanParagraph = if (bidiPrefix.isNotEmpty()) paragraph.substring(1) else paragraph
                 val trimmed = cleanParagraph.trim()
+
+                // Robustly strip any leading/trailing bidi control characters for math block checks
+                val cleanTrimmed = trimmed
+                    .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
+                    .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                    .trim()
+
+                // Check if this line starts a math block
+                if (cleanTrimmed.startsWith("$$")) {
+                    if (cleanTrimmed.endsWith("$$") && cleanTrimmed.length > 2) {
+                        val cleanFormula = cleanTrimmed.removePrefix("$$").removeSuffix("$$").trim()
+                        ComposeMathBlock(formula = cleanFormula, fontSize = (baseFontSize * 1.1).sp)
+                    } else {
+                        inMathBlock = true
+                        val cleanLine = cleanTrimmed.removePrefix("$$")
+                        if (cleanLine.isNotEmpty()) {
+                            mathLines.add(cleanLine)
+                        }
+                    }
+                    idx++
+                    continue
+                }
 
                 // Check if this line starts a table
                 if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
@@ -1022,6 +1071,10 @@ fun MarkdownPreviewPane(
 
             if (inCodeBlock && codeLines.isNotEmpty()) {
                 ComposeCodeBlock(lines = codeLines, fontSize = (baseFontSize * 0.85).sp)
+            }
+            if (inMathBlock && mathLines.isNotEmpty()) {
+                val fullFormula = mathLines.joinToString("\n")
+                ComposeMathBlock(formula = fullFormula, fontSize = (baseFontSize * 1.1).sp)
             }
         }
     }
@@ -1265,6 +1318,93 @@ fun ComposeCodeBlock(lines: List<String>, fontSize: androidx.compose.ui.unit.Tex
             )
         }
     }
+}
+
+@Composable
+fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUnit) {
+    val isDark = isSystemInDarkTheme()
+    val textHtmlColor = if (isDark) "#E2E4EC" else "#2D3748"
+    
+    val htmlContent = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+            <style>
+                body {
+                    background-color: transparent;
+                    color: $textHtmlColor;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    margin: 0;
+                    padding: 8px;
+                    overflow: hidden;
+                }
+                #math {
+                    font-size: 1.25em;
+                    text-align: center;
+                }
+                .katex-display {
+                    margin: 0 !important;
+                }
+            </style>
+        </head>
+        <body>
+            <div id="math"></div>
+            <script>
+                try {
+                    katex.render(${JSONString(formula)}, document.getElementById('math'), {
+                        displayMode: true,
+                        throwOnError: false
+                    });
+                } catch (e) {
+                    document.getElementById('math').textContent = ${JSONString(formula)};
+                }
+            </script>
+        </body>
+        </html>
+    """.trimIndent()
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+        border = CardDefaults.outlinedCardBorder()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(80.dp)
+                .padding(4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            AndroidView(
+                factory = { context ->
+                    WebView(context).apply {
+                        webViewClient = WebViewClient()
+                        settings.javaScriptEnabled = true
+                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    }
+                },
+                update = { webView ->
+                    webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}
+
+private fun JSONString(str: String): String {
+    return "\"" + str.replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r") + "\""
 }
 
 fun highlightCode(code: String): AnnotatedString {
@@ -1612,8 +1752,8 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
     val builder = AnnotatedString.Builder()
     var index = 0
 
-    // Match bold, italic, inline code, or HTML span tags
-    val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>)")
+    // Match bold, italic, inline code, inline math, or HTML span tags
+    val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>)")
     val matches = regex.findAll(input)
 
     for (match in matches) {
@@ -1635,6 +1775,16 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
             }
             matchedText.startsWith("`") && matchedText.endsWith("`") -> {
                 builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBgColor))
+                builder.append(matchedText.substring(1, matchedText.length - 1))
+                builder.pop()
+            }
+            matchedText.startsWith("$$") && matchedText.endsWith("$$") -> {
+                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Serif, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold))
+                builder.append(matchedText.substring(2, matchedText.length - 2))
+                builder.pop()
+            }
+            matchedText.startsWith("$") && matchedText.endsWith("$") -> {
+                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Serif, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold))
                 builder.append(matchedText.substring(1, matchedText.length - 1))
                 builder.pop()
             }

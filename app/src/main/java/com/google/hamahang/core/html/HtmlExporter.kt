@@ -219,6 +219,22 @@ object HtmlExporter {
                 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
                 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Vazirmatn:wght@300;400;700&display=swap" rel="stylesheet">
                 
+                <!-- KaTeX for beautiful math formula rendering -->
+                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+                <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+                <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+                <script>
+                    document.addEventListener("DOMContentLoaded", function() {
+                        renderMathInElement(document.body, {
+                            delimiters: [
+                                {left: "\$\$", right: "\$\$", display: true},
+                                {left: "\$", right: "\$", display: false}
+                            ],
+                            throwOnError : false
+                        });
+                    });
+                </script>
+                
                 <style>
                     :root {
                         --bg-color: #F8F9FC;

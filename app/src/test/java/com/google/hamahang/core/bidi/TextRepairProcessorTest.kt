@@ -124,6 +124,7 @@ class TextRepairProcessorTest {
         assertTrue("Literal bullet formula should be RTL", TextRepairProcessor.isParagraphRtl(literalBulletFormula))
         assertTrue("Formula W should be RTL", TextRepairProcessor.isParagraphRtl(formulaW))
         assertTrue("Formula H should be RTL", TextRepairProcessor.isParagraphRtl(formulaH))
+
         assertTrue("Formula A should be RTL", TextRepairProcessor.isParagraphRtl(formulaA))
         assertTrue("Normal text with trailing LTR should be RTL", TextRepairProcessor.isParagraphRtl(normalTextWithEnglish))
 
@@ -137,10 +138,13 @@ class TextRepairProcessorTest {
 
     @Test
     fun testExplicitParagraphDirectionOverrides() {
+        val lrm = 0x200E.toChar()
+        val rlm = 0x200F.toChar()
+        
         // Text that would normally be RTL but is overridden to LTR with LRM
-        val overriddenToLtr = "\u200Eاین متن با نشانگر چپ‌به‌راست شروع شده است."
+        val overriddenToLtr = "${lrm}این متن با نشانگر چپ‌به‌راست شروع شده است."
         // Text that would normally be LTR but is overridden to RTL with RLM
-        val overriddenToRtl = "\u200FThis sentence starts with a Right-to-Left Mark."
+        val overriddenToRtl = "${rlm}This sentence starts with a Right-to-Left Mark."
 
         assertTrue(!TextRepairProcessor.isParagraphRtl(overriddenToLtr))
         assertTrue(TextRepairProcessor.isParagraphRtl(overriddenToRtl))
@@ -149,11 +153,11 @@ class TextRepairProcessorTest {
     @Test
     fun testHtmlSpanHandling() {
         val rawInput = "نمودار پیشرفت شامل <span style=\"color:#00ff00\">2020</span> است."
-        
+
         // isolateLtrSubRuns should NOT wrap HTML tags or style attributes in bidi control marks
         val isolated = TextRepairProcessor.isolateLtrSubRuns(rawInput)
         assertEquals("HTML span tags should not be isolated", rawInput, isolated)
-        
+
         // isParagraphRtl should correctly identify the paragraph as RTL
         assertTrue("RTL text with inline HTML spans should be detected as RTL", TextRepairProcessor.isParagraphRtl(rawInput))
     }
@@ -163,11 +167,54 @@ class TextRepairProcessorTest {
         val codeText = """
             ```python
             # تست تابع
-            user_prompt = "چرا یادگیری گیتار سخت است؟"
+            user_prompt = "چرا یادگیری گیتار سخت است..."
             ```
         """.trimIndent()
         
         val repaired = TextRepairProcessor.repairText(codeText)
         assertEquals(codeText, repaired)
     }
+
+    @Test
+    fun testBlockMathBypassInRepairText() {
+        val b = '\\'
+        val d = '$'
+        val blockMathSingle = "${d}${d}L = -${b}frac{1}{N} ${b}sum_{i=1}^{N} y_i ${b}log(p_i)${d}${d}"
+        val blockMathMulti = "${d}${d}\nL = -${b}frac{1}{N} ${b}sum_{i=1}^{N} y_i ${b}log(p_i)\n${d}${d}"
+
+        // Block math lines should be returned completely untouched
+        assertEquals(blockMathSingle, TextRepairProcessor.repairText(blockMathSingle))
+        assertEquals(blockMathMulti, TextRepairProcessor.repairText(blockMathMulti))
+        
+        // Also verify block math with leading bidi overrides is bypassed
+        val blockMathSingleWithBidi = "\u200F${d}${d}L = -${b}frac{1}{N} ${b}sum_{i=1}^{N} y_i ${b}log(p_i)${d}${d}"
+        assertEquals(blockMathSingleWithBidi, TextRepairProcessor.repairText(blockMathSingleWithBidi))
+    }
+
+    @Test
+    fun testInlineMathProtectionInRepairText() {
+        val lri = 0x2066.toChar()
+        val pdi = 0x2069.toChar()
+        val d = '$'
+        val rawInput = "فرمول انتروپی متقاطع (${d}Loss${d} ${d}Cross-Entropy${d}) برای پیش‌بینی کلمات بعدی به شکل زیر تعریف می‌شود:"
+        val result = TextRepairProcessor.repairText(rawInput)
+
+        // The formulas ($Loss$ and $Cross-Entropy$) should remain completely untouched inside
+        // and should NOT have directional isolates injected between the dollar signs and the letters.
+        assertTrue("Should preserve Loss inline math cleanly", result.contains("${lri}${d}Loss${d}${pdi}") || result.contains("${d}Loss${d}"))
+        assertTrue("Should preserve Cross-Entropy inline math cleanly", result.contains("${lri}${d}Cross-Entropy${d}${pdi}") || result.contains("${d}Cross-Entropy${d}"))
+    }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
