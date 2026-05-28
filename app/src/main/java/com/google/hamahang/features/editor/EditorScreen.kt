@@ -1913,7 +1913,7 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
     var index = 0
 
     // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
-    val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*>)")
+    val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"'“”‘’]([^\"'“”‘’]*)[\"'“”‘’]\\s*>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*>)")
     val matches = regex.findAll(input)
 
     for (match in matches) {
@@ -1958,13 +1958,13 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                     var color: Color? = null
                     var fontSize: androidx.compose.ui.unit.TextUnit? = null
 
-                    val colorMatch = Regex("color\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(attrsStr)
+                    val colorMatch = Regex("color\\s*=\\s*[\"'“”‘’]([^\"'“”‘’]*)[\"'“”‘’]", RegexOption.IGNORE_CASE).find(attrsStr)
                     if (colorMatch != null) {
                         val colorValue = colorMatch.groupValues[1]
                         color = parseHtmlColor(colorValue)
                     }
 
-                    val sizeMatch = Regex("size\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE).find(attrsStr)
+                    val sizeMatch = Regex("size\\s*=\\s*[\"'“”‘’]([^\"'“”‘’]*)[\"'“”‘’]", RegexOption.IGNORE_CASE).find(attrsStr)
                     if (sizeMatch != null) {
                         val sizeValue = sizeMatch.groupValues[1]
                         fontSize = parseHtmlFontSizeAttribute(sizeValue)
@@ -1981,7 +1981,7 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                 }
             }
             matchedText.startsWith("<") && matchedText.endsWith(">") -> {
-                val spanRegex = Regex("<\\s*span\\s+style\\s*=\\s*[\"']([^\"']*)[\"']\\s*>(.*?)<\\s*/\\s*span\\s*>")
+                val spanRegex = Regex("<\\s*span\\s+style\\s*=\\s*[\"'“”‘’]([^\"'“”‘’]*)[\"'“”‘’]\\s*>(.*?)<\\s*/\\s*span\\s*>")
                 val spanMatch = spanRegex.matchEntire(matchedText)
                 if (spanMatch != null) {
                     val styleStr = spanMatch.groupValues[1]

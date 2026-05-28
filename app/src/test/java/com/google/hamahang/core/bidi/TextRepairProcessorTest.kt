@@ -160,6 +160,25 @@ class TextRepairProcessorTest {
 
         // isParagraphRtl should correctly identify the paragraph as RTL
         assertTrue("RTL text with inline HTML spans should be detected as RTL", TextRepairProcessor.isParagraphRtl(rawInput))
+
+        val emojiSpanInput = "🔴 <span style=\"color: #d9534f; font-weight: bold; font-size: 1.1em\">هشدار حریم خصوصی:</span>"
+        val repairedSpan = TextRepairProcessor.repairText(emojiSpanInput)
+        println("REPAIRED SPAN: " + repairedSpan)
+        assertEquals("repairedSpan should not corrupt HTML tags", emojiSpanInput, repairedSpan)
+
+        val inlineRegex = java.util.regex.Pattern.compile("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"'“”‘’]([^\"'“”‘’]*)[\"'“”‘’]\\s*>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*)")
+        val matcher = inlineRegex.matcher(repairedSpan)
+        val matched = matcher.find()
+        println("REGEX MATCHED: " + matched)
+        assertTrue("Regex should match repairedSpan", matched)
+
+        // Test with smart curly double quotes
+        val smartCurlyDoubleInput = "🔴 <span style=“color: #d9534f; font-weight: bold; font-size: 1.1em”>هشدار حریم خصوصی:</span>"
+        val repairedSmartCurly = TextRepairProcessor.repairText(smartCurlyDoubleInput)
+        assertEquals("repairedSmartCurly should preserve smart quotes", smartCurlyDoubleInput, repairedSmartCurly)
+
+        val matcherSmart = inlineRegex.matcher(repairedSmartCurly)
+        assertTrue("Regex should match smart quote style", matcherSmart.find())
     }
 
     @Test

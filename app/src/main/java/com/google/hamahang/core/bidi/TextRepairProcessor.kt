@@ -63,6 +63,15 @@ object TextRepairProcessor {
             var result = paragraph
 
             if (isRtl) {
+                // Protect HTML tags first to avoid normalization/isolation corruption
+                val htmlPlaceholderMap = mutableListOf<String>()
+                val htmlTagRegex = Regex("<[^>]+>")
+                result = htmlTagRegex.replace(result) { matchResult ->
+                    val placeholderChar = ('\uE000'.code + htmlPlaceholderMap.size).toChar().toString()
+                    htmlPlaceholderMap.add(matchResult.value)
+                    placeholderChar
+                }
+
                 // Protect inline math runs before doing bidi repair
                 val mathPlaceholderMap = mutableListOf<String>()
                 val mathRegex = Regex("(\\$\\$\\s*.*?\\s*\\$\\$|\\$\\s*.*?\\s*\\$)")
@@ -89,6 +98,12 @@ object TextRepairProcessor {
                 mathPlaceholderMap.forEachIndexed { index, originalMath ->
                     val placeholder = "MATHPLCHLDR$index"
                     result = result.replace(placeholder, originalMath)
+                }
+
+                // Restore HTML tags from placeholders
+                htmlPlaceholderMap.forEachIndexed { index, originalTag ->
+                    val placeholderChar = ('\uE000'.code + index).toChar().toString()
+                    result = result.replace(placeholderChar, originalTag)
                 }
             }
 
