@@ -23,16 +23,24 @@ object TextRepairProcessor {
         // Split text by newlines safely supporting Windows, Linux, Mac endings
         val paragraphs = input.split(Regex("\\R"))
         var inCodeBlock = false
+        var inMermaidBlock = false
         var inMathBlock = false
         val repairedParagraphs = paragraphs.map { paragraph ->
             val trimmed = paragraph.trim()
             if (trimmed.startsWith("```")) {
-                inCodeBlock = !inCodeBlock
+                if (trimmed.startsWith("```mermaid")) {
+                    inMermaidBlock = true
+                } else if (inCodeBlock || inMermaidBlock) {
+                    inCodeBlock = false
+                    inMermaidBlock = false
+                } else {
+                    inCodeBlock = true
+                }
                 return@map paragraph
             }
 
-            if (inCodeBlock) {
-                // Return code block lines completely untouched!
+            if (inCodeBlock || inMermaidBlock) {
+                // Return code block and mermaid block lines completely untouched!
                 return@map paragraph
             }
 
