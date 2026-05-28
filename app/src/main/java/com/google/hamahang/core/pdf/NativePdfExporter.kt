@@ -352,6 +352,21 @@ object NativePdfExporter {
                 currentTypeface = boldTypeface
                 displayText = trimmed.substring(4)
                 isHeader = true
+            } else if (trimmed.startsWith("#### ")) {
+                currentTextSize = baseFontSize * 1.15f
+                currentTypeface = boldTypeface
+                displayText = trimmed.substring(5)
+                isHeader = true
+            } else if (trimmed.startsWith("##### ")) {
+                currentTextSize = baseFontSize * 1.0f
+                currentTypeface = boldTypeface
+                displayText = trimmed.substring(6)
+                isHeader = true
+            } else if (trimmed.startsWith("###### ")) {
+                currentTextSize = baseFontSize * 0.85f
+                currentTypeface = boldTypeface
+                displayText = trimmed.substring(7)
+                isHeader = true
             }
             // 3. Bullet Lists (- or * or •)
             else if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {

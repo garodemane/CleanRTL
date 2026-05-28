@@ -262,6 +262,18 @@ object HtmlExporter {
                     tag = "h3"
                     displayText = trimmed.substring(4)
                 }
+                trimmed.startsWith("#### ") -> {
+                    tag = "h4"
+                    displayText = trimmed.substring(5)
+                }
+                trimmed.startsWith("##### ") -> {
+                    tag = "h5"
+                    displayText = trimmed.substring(6)
+                }
+                trimmed.startsWith("###### ") -> {
+                    tag = "h6"
+                    displayText = trimmed.substring(7)
+                }
                 trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
                     tag = "li"
                     displayText = trimmed.substring(2)
@@ -426,7 +438,7 @@ object HtmlExporter {
                         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
                     }
 
-                    h1, h2, h3 {
+                    h1, h2, h3, h4, h5, h6 {
                         color: var(--primary-color);
                         margin-top: 1.5em;
                         margin-bottom: 0.5em;
@@ -435,6 +447,9 @@ object HtmlExporter {
                     h1 { font-size: 2.2em; border-bottom: 2px solid var(--accent-color); padding-bottom: 8px; }
                     h2 { font-size: 1.7em; }
                     h3 { font-size: 1.3em; }
+                    h4 { font-size: 1.15em; }
+                    h5 { font-size: 1.0em; }
+                    h6 { font-size: 0.85em; }
 
                     p, li {
                         font-size: ${fontSizePx}px;

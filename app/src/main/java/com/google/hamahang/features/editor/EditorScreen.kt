@@ -1150,6 +1150,15 @@ fun MarkdownPreviewPane(
                     trimmed.startsWith("### ") -> {
                         MarkdownHeader(text = bidiPrefix + trimmed.substring(4), size = (baseFontSize * 1.15).sp, weight = FontWeight.Bold)
                     }
+                    trimmed.startsWith("#### ") -> {
+                        MarkdownHeader(text = bidiPrefix + trimmed.substring(5), size = (baseFontSize * 1.05).sp, weight = FontWeight.Bold)
+                    }
+                    trimmed.startsWith("##### ") -> {
+                        MarkdownHeader(text = bidiPrefix + trimmed.substring(6), size = (baseFontSize * 0.95).sp, weight = FontWeight.Bold)
+                    }
+                    trimmed.startsWith("###### ") -> {
+                        MarkdownHeader(text = bidiPrefix + trimmed.substring(7), size = (baseFontSize * 0.85).sp, weight = FontWeight.Bold)
+                    }
                     trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
                         MarkdownListItem(text = bidiPrefix + trimmed.substring(2), fontSize = baseFontSize.sp)
                     }
