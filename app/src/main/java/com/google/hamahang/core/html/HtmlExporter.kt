@@ -24,6 +24,9 @@ object HtmlExporter {
         var inMathBlock = false
         val mathLines = mutableListOf<String>()
 
+        var inMermaidBlock = false
+        val mermaidLines = mutableListOf<String>()
+
         var idx = 0
         while (idx < paragraphs.size) {
             val paragraph = paragraphs[idx]
@@ -34,6 +37,20 @@ object HtmlExporter {
                 .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
                 .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
                 .trim()
+
+            if (inMermaidBlock) {
+                if (trimmed.startsWith("```")) {
+                    val mermaidCode = mermaidLines.joinToString("\n")
+                        .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
+                    htmlContent.append("<pre class='mermaid'>\n$mermaidCode\n</pre>\n")
+                    mermaidLines.clear()
+                    inMermaidBlock = false
+                } else {
+                    mermaidLines.add(paragraph)
+                }
+                idx++
+                continue
+            }
 
             if (inMathBlock) {
                 if (cleanTrimmed.endsWith("$$")) {
@@ -80,7 +97,12 @@ object HtmlExporter {
                     codeLines.clear()
                     inCodeBlock = false
                 } else {
-                    inCodeBlock = true
+                    val lang = trimmed.substring(3).trim().lowercase()
+                    if (lang == "mermaid") {
+                        inMermaidBlock = true
+                    } else {
+                        inCodeBlock = true
+                    }
                 }
                 idx++
                 continue
@@ -256,6 +278,13 @@ object HtmlExporter {
             htmlContent.append("<div class='block-math' dir='ltr'>\n\$\$\n$fullFormula\n\$\$\n</div>\n")
         }
 
+        // Final mermaid block fallback
+        if (inMermaidBlock && mermaidLines.isNotEmpty()) {
+            val mermaidCode = mermaidLines.joinToString("\n")
+                .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
+            htmlContent.append("<pre class='mermaid'>\n$mermaidCode\n</pre>\n")
+        }
+
         // Build premium, responsive HTML template with CSS styling
         val fullHtml = """
             <!DOCTYPE html>
@@ -281,6 +310,18 @@ object HtmlExporter {
                                 {left: "\$", right: "\$", display: false}
                             ],
                             throwOnError : false
+                        });
+                    });
+                </script>
+
+                <!-- Mermaid for beautiful interactive graphs -->
+                <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+                <script>
+                    document.addEventListener("DOMContentLoaded", function() {
+                        mermaid.initialize({
+                            startOnLoad: true,
+                            theme: (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'default',
+                            securityLevel: 'loose'
                         });
                     });
                 </script>
