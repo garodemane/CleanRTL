@@ -163,6 +163,12 @@ class TextRepairProcessorTest {
     }
 
     @Test
+    fun testHtmlFontHandling() {
+        val rawInput = "<font size=\"6\">تحول پزشکی در عصر دیجیتال</font> (H1 - تیتر اصلی)"
+        assertTrue("RTL text with leading HTML font tag should be detected as RTL", TextRepairProcessor.isParagraphRtl(rawInput))
+    }
+
+    @Test
     fun testCodeBlockBypassInRepairText() {
         val codeText = """
             ```python

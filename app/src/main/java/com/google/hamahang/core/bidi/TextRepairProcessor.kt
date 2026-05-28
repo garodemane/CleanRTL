@@ -141,8 +141,11 @@ object TextRepairProcessor {
             cleanStr = formulaMatch.groupValues[1].trimStart()
         }
 
+        // 4b. Strip HTML tags to ensure correct directional analysis for text starting with HTML markup
+        val directionAnalysisStr = cleanStr.replace(Regex("<[^>]*>"), "")
+
         // 5. Resolve based on the first strong character (official Unicode Standard Annex #9)
-        for (char in cleanStr) {
+        for (char in directionAnalysisStr) {
             val charStr = char.toString()
             if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
                 return true
@@ -154,7 +157,7 @@ object TextRepairProcessor {
         // 6. Fallback weight counting if no strong characters exist
         var rtlCount = 0
         var ltrCount = 0
-        for (char in cleanStr) {
+        for (char in directionAnalysisStr) {
             val charStr = char.toString()
             if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
                 rtlCount++
