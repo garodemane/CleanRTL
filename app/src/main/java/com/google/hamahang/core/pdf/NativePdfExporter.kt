@@ -690,8 +690,33 @@ object NativePdfExporter {
         val builder = SpannableStringBuilder()
         var index = 0
 
+        fun cleanQuotes(value: String): String {
+            var clean = value.trim()
+            val quotePairs = listOf(
+                "\"" to "\"",
+                "'" to "'",
+                "“" to "”",
+                "“" to "“",
+                "”" to "”",
+                "‘" to "’",
+                "‘" to "‘",
+                "’" to "’",
+                "«" to "»",
+                "„" to "‟",
+                "＂" to "＂",
+                "＇" to "＇"
+            )
+            for (pair in quotePairs) {
+                if (clean.startsWith(pair.first) && clean.endsWith(pair.second)) {
+                    clean = clean.removeSurrounding(pair.first, pair.second)
+                    break
+                }
+            }
+            return clean
+        }
+
         // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
-        val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"'“”‘’]([^\"'“”‘’]*)[\"'“”‘’]\\s*>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*>)")
+        val regex = Regex("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[^>]+>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*>)")
         val matches = regex.findAll(input)
 
         for (match in matches) {
@@ -742,15 +767,15 @@ object NativePdfExporter {
                         var color: Int? = null
                         var fontSizePx: Float? = null
 
-                        val colorMatch = Regex("color\\s*=\\s*[\"'“”‘’]([^\"'“”‘’]*)[\"'“”‘’]", RegexOption.IGNORE_CASE).find(attrsStr)
+                        val colorMatch = Regex("color\\s*=\\s*([^\\s>]+)", RegexOption.IGNORE_CASE).find(attrsStr)
                         if (colorMatch != null) {
-                            val colorValue = colorMatch.groupValues[1]
+                            val colorValue = cleanQuotes(colorMatch.groupValues[1])
                             color = parseHtmlColorToInt(colorValue)
                         }
 
-                        val sizeMatch = Regex("size\\s*=\\s*[\"'“”‘’]([^\"'“”‘’]*)[\"'“”‘’]", RegexOption.IGNORE_CASE).find(attrsStr)
+                        val sizeMatch = Regex("size\\s*=\\s*([^\\s>]+)", RegexOption.IGNORE_CASE).find(attrsStr)
                         if (sizeMatch != null) {
-                            val sizeValue = sizeMatch.groupValues[1]
+                            val sizeValue = cleanQuotes(sizeMatch.groupValues[1])
                             fontSizePx = parseHtmlFontSizeAttributeToPx(sizeValue, baseFontSize)
                         }
 
@@ -767,12 +792,13 @@ object NativePdfExporter {
                         builder.append(matchedText)
                     }
                 }
-                matchedText.startsWith("<") && matchedText.endsWith(">") -> {
-                    val spanRegex = Regex("<\\s*span\\s+style\\s*=\\s*[\"'“”‘’]([^\"'“”‘’]*)[\"'“”‘’]\\s*>(.*?)<\\s*/\\s*span\\s*>")
+                matchedText.startsWith("<span") || (matchedText.startsWith("<") && matchedText.contains("span")) -> {
+                    val spanRegex = Regex("<\\s*span\\s+style\\s*=\\s*([^>]+)>(.*?)<\\s*/\\s*span\\s*>")
                     val spanMatch = spanRegex.matchEntire(matchedText)
                     if (spanMatch != null) {
-                        val styleStr = spanMatch.groupValues[1]
+                        val rawStyle = spanMatch.groupValues[1]
                         val innerText = spanMatch.groupValues[2]
+                        val styleStr = cleanQuotes(rawStyle)
 
                         var color: Int? = null
                         var fontSizePx: Float? = null

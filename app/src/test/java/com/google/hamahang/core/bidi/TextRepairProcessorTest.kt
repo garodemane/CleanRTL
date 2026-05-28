@@ -166,7 +166,8 @@ class TextRepairProcessorTest {
         println("REPAIRED SPAN: " + repairedSpan)
         assertEquals("repairedSpan should not corrupt HTML tags", emojiSpanInput, repairedSpan)
 
-        val inlineRegex = java.util.regex.Pattern.compile("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[\"'“”‘’]([^\"'“”‘’]*)[\"'“”‘’]\\s*>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*)")
+        // The quote-agnostic regex
+        val inlineRegex = java.util.regex.Pattern.compile("(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<\\s*span\\s+style\\s*=\\s*[^>]+>.*?<\\s*/\\s*span\\s*>|<\\s*font\\s+[^>]*>.*?<\\s*/\\s*font\\s*)")
         val matcher = inlineRegex.matcher(repairedSpan)
         val matched = matcher.find()
         println("REGEX MATCHED: " + matched)
@@ -179,6 +180,12 @@ class TextRepairProcessorTest {
 
         val matcherSmart = inlineRegex.matcher(repairedSmartCurly)
         assertTrue("Regex should match smart quote style", matcherSmart.find())
+
+        // Test with angled quotes
+        val angledInput = "🔴 <span style=«color: #d9534f»>هشدار حریم خصوصی:</span>"
+        val repairedAngled = TextRepairProcessor.repairText(angledInput)
+        assertEquals("repairedAngled should preserve angled quotes", angledInput, repairedAngled)
+        assertTrue("Regex should match angled quote style", inlineRegex.matcher(repairedAngled).find())
     }
 
     @Test
