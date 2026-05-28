@@ -68,6 +68,8 @@ object NativePdfExporter {
         val codeBlockLines = mutableListOf<String>()
         var inMathBlock = false
         val mathBlockLines = mutableListOf<String>()
+        var inMermaidBlock = false
+        val mermaidBlockLines = mutableListOf<String>()
 
         var idx = 0
         while (idx < paragraphs.size) {
@@ -102,6 +104,33 @@ object NativePdfExporter {
                     inMathBlock = false
                 } else {
                     mathBlockLines.add(paragraph)
+                }
+                idx++
+                continue
+            }
+
+            // 1b. Mermaid block accumulation check
+            if (inMermaidBlock) {
+                val trimmed = paragraph.trim()
+                val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                if (cleanCodeBlockTrim.startsWith("```")) {
+                    yOffset = drawMermaidBlock(
+                        canvas, mermaidBlockLines, textPaint, monospaceTypeface,
+                        margin, yOffset, printableWidth, pageHeight - margin,
+                        onNewPage = {
+                            pdfDocument.finishPage(currentPage)
+                            currentPageNumber++
+                            pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                            currentPage = pdfDocument.startPage(pageInfo)
+                            canvas = currentPage.canvas
+                            yOffset = margin
+                            canvas
+                        }
+                    )
+                    mermaidBlockLines.clear()
+                    inMermaidBlock = false
+                } else {
+                    mermaidBlockLines.add(paragraph)
                 }
                 idx++
                 continue
@@ -175,10 +204,16 @@ object NativePdfExporter {
                 continue
             }
 
-            // 3. Code Block boundary check
+            // 3. Code/Mermaid Block boundary check
             val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
             if (cleanCodeBlockTrim.startsWith("```")) {
-                inCodeBlock = true
+                val rawLang = cleanCodeBlockTrim.substring(3).trim().lowercase()
+                val lang = rawLang.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+                if (lang == "mermaid") {
+                    inMermaidBlock = true
+                } else {
+                    inCodeBlock = true
+                }
                 idx++
                 continue
             }
@@ -413,6 +448,15 @@ object NativePdfExporter {
             )
         }
 
+        // Finish accumulated mermaid block if document ends inside it
+        if (inMermaidBlock && mermaidBlockLines.isNotEmpty()) {
+            yOffset = drawMermaidBlock(
+                canvas, mermaidBlockLines, textPaint, monospaceTypeface,
+                margin, yOffset, printableWidth, pageHeight - margin,
+                onNewPage = { canvas }
+            )
+        }
+
         // Finish accumulated math block if document ends inside it
         if (inMathBlock && mathBlockLines.isNotEmpty()) {
             drawBlockMath(
@@ -484,6 +528,77 @@ object NativePdfExporter {
         // Draw Code lines
         currentCanvas.save()
         currentCanvas.translate(margin + 12f, yOffset + 10f)
+        textLayout.draw(currentCanvas)
+        currentCanvas.restore()
+
+        return yOffset + blockHeight + 10f
+    }
+
+    private fun drawMermaidBlock(
+        canvas: Canvas,
+        lines: List<String>,
+        paint: TextPaint,
+        typeface: Typeface,
+        margin: Float,
+        yStart: Float,
+        width: Float,
+        maxHeight: Float,
+        onNewPage: () -> Canvas
+    ): Float {
+        var currentCanvas = canvas
+        var yOffset = yStart
+        // Do NOT run any bidi preprocessing on Mermaid diagram code!
+        val rawCode = lines.joinToString("\n")
+        val cleanCode = rawCode.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+
+        paint.apply {
+            textSize = 10f
+            this.typeface = typeface
+            color = Color.rgb(212, 212, 212) // Default text color: #D4D4D4
+        }
+
+        // Draw a label above the Mermaid code block
+        val labelPaint = TextPaint().apply {
+            textSize = 9f
+            this.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            color = Color.rgb(14, 132, 87) // Accent green #0E8457
+        }
+        val label = "Mermaid Diagram (PDF Code Fallback):"
+        val labelHeight = 15f
+
+        val textLayout = StaticLayout.Builder.obtain(
+            cleanCode,
+            0,
+            cleanCode.length,
+            paint,
+            (width - 24f).toInt()
+        )
+        .setAlignment(Layout.Alignment.ALIGN_NORMAL) // Code listings are always LTR
+        .setTextDirection(TextDirectionHeuristics.LTR)
+        .setLineSpacing(0f, 1.1f)
+        .build()
+
+        val blockHeight = textLayout.height + 25f + labelHeight
+
+        if (yOffset + blockHeight > maxHeight) {
+            currentCanvas = onNewPage()
+            yOffset = margin
+        }
+
+        // Draw Label
+        currentCanvas.drawText(label, margin, yOffset + 10f, labelPaint)
+
+        // Draw Card Background for Code Block (Dark Theme to match modern preview)
+        val bgPaint = Paint().apply {
+            color = Color.rgb(30, 30, 30) // Dark background #1E1E1E
+            style = Paint.Style.FILL
+        }
+        val cardRect = RectF(margin, yOffset + labelHeight + 5f, margin + width, yOffset + blockHeight)
+        currentCanvas.drawRoundRect(cardRect, 6f, 6f, bgPaint)
+
+        // Draw Code lines
+        currentCanvas.save()
+        currentCanvas.translate(margin + 12f, yOffset + labelHeight + 15f)
         textLayout.draw(currentCanvas)
         currentCanvas.restore()
 
