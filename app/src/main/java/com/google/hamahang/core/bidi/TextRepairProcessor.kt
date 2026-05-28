@@ -27,8 +27,10 @@ object TextRepairProcessor {
         var inMathBlock = false
         val repairedParagraphs = paragraphs.map { paragraph ->
             val trimmed = paragraph.trim()
-            if (trimmed.startsWith("```")) {
-                if (trimmed.startsWith("```mermaid")) {
+            // Strip bidi marks to robustly identify code blocks and language starts
+            val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            if (cleanCodeBlockTrim.startsWith("```")) {
+                if (cleanCodeBlockTrim.startsWith("```mermaid")) {
                     inMermaidBlock = true
                 } else if (inCodeBlock || inMermaidBlock) {
                     inCodeBlock = false
@@ -46,8 +48,8 @@ object TextRepairProcessor {
 
             // Robustly strip any leading/trailing bidi control characters for math block checks
             val cleanTrimmed = trimmed
-                .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
-                .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
+                .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
                 .trim()
 
             if (cleanTrimmed.startsWith("$$")) {

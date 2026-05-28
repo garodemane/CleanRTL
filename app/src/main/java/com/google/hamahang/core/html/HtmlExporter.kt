@@ -34,15 +34,16 @@ object HtmlExporter {
 
             // Robustly strip any leading/trailing bidi control characters for math block checks
             val cleanTrimmed = trimmed
-                .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
-                .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
+                .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
                 .trim()
 
             if (inMermaidBlock) {
-                if (trimmed.startsWith("```")) {
+                val cleanBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                if (cleanBlockTrim.startsWith("```")) {
                     val mermaidCode = mermaidLines.joinToString("\n")
-                        .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
-                    htmlContent.append("<pre class='mermaid'>\n$mermaidCode\n</pre>\n")
+                        .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+                    htmlContent.append("<pre class='mermaid'>$mermaidCode</pre>\n")
                     mermaidLines.clear()
                     inMermaidBlock = false
                 } else {
@@ -59,7 +60,7 @@ object HtmlExporter {
                         mathLines.add(cleanLine)
                     }
                     val fullFormula = mathLines.joinToString("\n")
-                        .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
+                        .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     htmlContent.append("<div class='block-math' dir='ltr'>\n\$\$\n$fullFormula\n\$\$\n</div>\n")
                     mathLines.clear()
                     inMathBlock = false
@@ -73,7 +74,7 @@ object HtmlExporter {
             if (cleanTrimmed.startsWith("$$")) {
                 if (cleanTrimmed.endsWith("$$") && cleanTrimmed.length > 2) {
                     val cleanFormula = cleanTrimmed.removePrefix("$$").removeSuffix("$$")
-                        .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
+                        .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     htmlContent.append("<div class='block-math' dir='ltr'>\n\$\$\n$cleanFormula\n\$\$\n</div>\n")
                 } else {
                     inMathBlock = true
@@ -87,7 +88,8 @@ object HtmlExporter {
             }
 
             // 1. Code Block parsing
-            if (trimmed.startsWith("```")) {
+            val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            if (cleanCodeBlockTrim.startsWith("```")) {
                 if (inCodeBlock) {
                     val codeContent = codeLines.joinToString("\n")
                         .replace("&", "&amp;")
@@ -97,7 +99,8 @@ object HtmlExporter {
                     codeLines.clear()
                     inCodeBlock = false
                 } else {
-                    val lang = trimmed.substring(3).trim().lowercase()
+                    val rawLang = cleanCodeBlockTrim.substring(3).trim().lowercase()
+                    val lang = rawLang.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     if (lang == "mermaid") {
                         inMermaidBlock = true
                     } else {
@@ -274,15 +277,15 @@ object HtmlExporter {
         // Final math block fallback
         if (inMathBlock && mathLines.isNotEmpty()) {
             val fullFormula = mathLines.joinToString("\n")
-                .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
+                .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
             htmlContent.append("<div class='block-math' dir='ltr'>\n\$\$\n$fullFormula\n\$\$\n</div>\n")
         }
 
         // Final mermaid block fallback
         if (inMermaidBlock && mermaidLines.isNotEmpty()) {
             val mermaidCode = mermaidLines.joinToString("\n")
-                .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
-            htmlContent.append("<pre class='mermaid'>\n$mermaidCode\n</pre>\n")
+                .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            htmlContent.append("<pre class='mermaid'>$mermaidCode</pre>\n")
         }
 
         // Build premium, responsive HTML template with CSS styling

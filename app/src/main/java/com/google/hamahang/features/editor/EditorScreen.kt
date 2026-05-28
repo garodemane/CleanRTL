@@ -909,8 +909,8 @@ fun MarkdownPreviewPane(
                 val paragraph = paragraphs[idx]
 
                 if (inMermaidBlock) {
-                    val trimmed = paragraph.trim()
-                    if (trimmed.startsWith("```")) {
+                    val cleanTrimmed = paragraph.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                    if (cleanTrimmed.startsWith("```")) {
                         val fullMermaid = mermaidLines.joinToString("\n")
                         ComposeMermaidBlock(code = fullMermaid)
                         mermaidLines.clear()
@@ -925,8 +925,8 @@ fun MarkdownPreviewPane(
                 if (inMathBlock) {
                     val trimmed = paragraph.trim()
                     val cleanTrimmed = trimmed
-                        .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
-                        .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                        .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
+                        .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
                         .trim()
                     if (cleanTrimmed.endsWith("$$")) {
                         val cleanLine = cleanTrimmed.removeSuffix("$$")
@@ -945,8 +945,8 @@ fun MarkdownPreviewPane(
                 }
 
                 if (inCodeBlock) {
-                    val trimmed = paragraph.trim()
-                    if (trimmed.startsWith("```")) {
+                    val cleanTrimmed = paragraph.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                    if (cleanTrimmed.startsWith("```")) {
                         ComposeCodeBlock(lines = codeLines, fontSize = (baseFontSize * 0.85).sp)
                         codeLines.clear()
                         inCodeBlock = false
@@ -974,8 +974,8 @@ fun MarkdownPreviewPane(
 
                 // Robustly strip any leading/trailing bidi control characters for math block checks
                 val cleanTrimmed = trimmed
-                    .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
-                    .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                    .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
+                    .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
                     .trim()
 
                 // Check if this line starts a math block
@@ -1045,8 +1045,10 @@ fun MarkdownPreviewPane(
                     }
                 }
 
-                if (trimmed.startsWith("```")) {
-                    val lang = trimmed.substring(3).trim().lowercase()
+                val cleanBlockTrimmed = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                if (cleanBlockTrimmed.startsWith("```")) {
+                    val rawLang = cleanBlockTrimmed.substring(3).trim().lowercase()
+                    val lang = rawLang.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     if (lang == "mermaid") {
                         inMermaidBlock = true
                     } else {
@@ -1356,7 +1358,7 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
     val isDark = isSystemInDarkTheme()
     val textHtmlColor = if (isDark) "#E2E4EC" else "#2D3748"
     val cleanFormula = remember(formula) {
-        formula.replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+        formula.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
     }
     
     var renderState by remember(cleanFormula) { mutableStateOf<MathRenderState>(MathRenderState.Loading) }
@@ -1410,17 +1412,29 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
             <div id="math"></div>
             <script>
                 function tryRender() {
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', tryRender);
+                        return;
+                    }
                     try {
                         if (typeof katex === 'undefined') {
                             throw new Error("KaTeX not loaded");
                         }
-                        katex.render(${JSONString(cleanFormula)}, document.getElementById('math'), {
+                        var target = document.getElementById('math');
+                        if (!target) {
+                            setTimeout(tryRender, 50);
+                            return;
+                        }
+                        katex.render(${JSONString(cleanFormula)}, target, {
                             displayMode: true,
                             throwOnError: false
                         });
                         console.log("MATH_RENDER_SUCCESS");
                     } catch (e) {
-                        document.getElementById('math').textContent = ${JSONString(cleanFormula)};
+                        var target = document.getElementById('math');
+                        if (target) {
+                            target.textContent = ${JSONString(cleanFormula)};
+                        }
                         console.log("MATH_RENDER_ERROR:" + e.message);
                     }
                 }
@@ -1547,10 +1561,8 @@ fun ComposeMermaidBlock(code: String) {
     
     // Clean bidi characters to avoid mermaid parsing syntax errors
     val cleanCode = remember(code) {
-        code.replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+        code.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
     }
-
-    var renderState by remember(cleanCode) { mutableStateOf<MathRenderState>(MathRenderState.Loading) }
 
     val htmlContent = remember(cleanCode, mermaidTheme) {
         """
@@ -1559,47 +1571,13 @@ fun ComposeMermaidBlock(code: String) {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <!-- Fallback-enabled CDN loading -->
-            <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" onload="initAndRender()" onerror="loadFallbackMermaid()"></script>
+            <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
             <script>
-                function loadFallbackMermaid() {
-                    var script = document.createElement('script');
-                    script.src = "https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js";
-                    script.onload = initAndRender;
-                    script.onerror = function() {
-                        var script2 = document.createElement('script');
-                        script2.src = "https://unpkg.com/mermaid@10/dist/mermaid.min.js";
-                        script2.onload = initAndRender;
-                        document.head.appendChild(script2);
-                    };
-                    document.head.appendChild(script);
-                }
-            </script>
-            <script>
-                function initAndRender() {
-                    try {
-                        if (typeof mermaid === 'undefined') {
-                            throw new Error("Mermaid not loaded");
-                        }
-                        mermaid.initialize({
-                            startOnLoad: false,
-                            theme: '$mermaidTheme',
-                            securityLevel: 'loose'
-                        });
-                        mermaid.init(undefined, document.querySelectorAll('.mermaid'));
-                        console.log("MERMAID_RENDER_SUCCESS");
-                    } catch (e) {
-                        console.log("MERMAID_RENDER_ERROR:" + e.message);
-                    }
-                }
-                
-                if (typeof mermaid !== 'undefined') {
-                    initAndRender();
-                } else {
-                    window.addEventListener('load', function() {
-                        setTimeout(initAndRender, 100);
-                    });
-                }
+                mermaid.initialize({
+                    startOnLoad: true,
+                    theme: '$mermaidTheme',
+                    securityLevel: 'loose'
+                });
             </script>
             <style>
                 body {
@@ -1619,21 +1597,9 @@ fun ComposeMermaidBlock(code: String) {
                 }
             </style>
         </head>
-        <body>
-            <pre class="mermaid">
-                $cleanCode
-            </pre>
-        </body>
+        <body><pre class="mermaid">$cleanCode</pre></body>
         </html>
         """.trimIndent()
-    }
-
-    // Safety timeout: if rendering doesn't succeed in 8.0 seconds, automatically show the beautiful native fallback
-    LaunchedEffect(cleanCode) {
-        kotlinx.coroutines.delay(8000)
-        if (renderState == MathRenderState.Loading) {
-            renderState = MathRenderState.Error("Timeout loading Mermaid CDN")
-        }
     }
 
     Card(
@@ -1647,97 +1613,46 @@ fun ComposeMermaidBlock(code: String) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 100.dp, max = 350.dp)
+                .height(350.dp)
                 .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
-            if (renderState is MathRenderState.Loading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                )
-            }
-
-            if (renderState is MathRenderState.Error) {
-                androidx.compose.foundation.text.selection.SelectionContainer {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            text = "Mermaid Diagram Code (Offline Fallback):",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        androidx.compose.foundation.layout.Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(220.dp)
-                                .background(Color(0xFF1E1E1E), shape = RoundedCornerShape(8.dp))
-                                .padding(12.dp)
-                        ) {
-                            Text(
-                                text = cleanCode,
-                                style = TextStyle(
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp,
-                                    color = Color(0xFFD4D4D4),
-                                    textDirection = TextDirection.Ltr
-                                ),
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .verticalScroll(rememberScrollState())
-                                    .horizontalScroll(rememberScrollState())
-                            )
+            AndroidView(
+                factory = { context ->
+                    android.webkit.WebView(context).apply {
+                        webViewClient = object : android.webkit.WebViewClient() {
+                            override fun onReceivedError(
+                                view: android.webkit.WebView?,
+                                request: android.webkit.WebResourceRequest?,
+                                error: android.webkit.WebResourceError?
+                            ) {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                    android.util.Log.e("ComposeMermaidBlock", "WebView Error: ${error?.description}")
+                                } else {
+                                    android.util.Log.e("ComposeMermaidBlock", "WebView Error occurred")
+                                }
+                            }
                         }
+                        webChromeClient = object : android.webkit.WebChromeClient() {
+                            override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                                android.util.Log.d("ComposeMermaidBlock", "Console: ${consoleMessage?.message()}")
+                                return true
+                            }
+                        }
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     }
-                }
-            } else {
-                AndroidView(
-                    factory = { context ->
-                        android.webkit.WebView(context).apply {
-                            webViewClient = object : android.webkit.WebViewClient() {
-                                override fun onReceivedError(
-                                    view: android.webkit.WebView?,
-                                    request: android.webkit.WebResourceRequest?,
-                                    error: android.webkit.WebResourceError?
-                                ) {
-                                    renderState = MathRenderState.Error("Network error")
-                                }
-                            }
-                            webChromeClient = object : android.webkit.WebChromeClient() {
-                                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
-                                    val msg = consoleMessage?.message() ?: ""
-                                    when {
-                                        msg == "MERMAID_RENDER_SUCCESS" -> {
-                                            renderState = MathRenderState.Success
-                                        }
-                                        msg.startsWith("MERMAID_RENDER_ERROR:") -> {
-                                            val err = msg.removePrefix("MERMAID_RENDER_ERROR:")
-                                            renderState = MathRenderState.Error(err)
-                                        }
-                                    }
-                                    return true
-                                }
-                            }
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        }
-                    },
-                    update = { webView ->
-                        val lastLoaded = webView.tag as? String
-                        if (lastLoaded != htmlContent) {
-                            webView.tag = htmlContent
-                            webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+                },
+                update = { webView ->
+                    val lastLoaded = webView.tag as? String
+                    if (lastLoaded != htmlContent) {
+                        webView.tag = htmlContent
+                        webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }

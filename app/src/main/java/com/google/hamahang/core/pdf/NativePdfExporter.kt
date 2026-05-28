@@ -77,8 +77,8 @@ object NativePdfExporter {
             if (inMathBlock) {
                 val trimmed = paragraph.trim()
                 val cleanTrimmed = trimmed
-                    .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
-                    .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                    .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
+                    .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
                     .trim()
                 if (cleanTrimmed.endsWith("$$")) {
                     val cleanLine = cleanTrimmed.removeSuffix("$$")
@@ -109,7 +109,8 @@ object NativePdfExporter {
 
             if (inCodeBlock) {
                 val trimmed = paragraph.trim()
-                if (trimmed.startsWith("```")) {
+                val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                if (cleanCodeBlockTrim.startsWith("```")) {
                     // Draw accumulated code block
                     yOffset = drawCodeBlock(
                         canvas, codeBlockLines, textPaint, monospaceTypeface,
@@ -143,8 +144,8 @@ object NativePdfExporter {
 
             // 2. Math Block parsing ($$)
             val cleanTrimmed = trimmed
-                .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
-                .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
+                .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
                 .trim()
 
             if (cleanTrimmed.startsWith("$$")) {
@@ -175,7 +176,8 @@ object NativePdfExporter {
             }
 
             // 3. Code Block boundary check
-            if (trimmed.startsWith("```")) {
+            val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            if (cleanCodeBlockTrim.startsWith("```")) {
                 inCodeBlock = true
                 idx++
                 continue
@@ -747,14 +749,14 @@ object NativePdfExporter {
                 }
                 matchedText.startsWith("$$") && matchedText.endsWith("$$") -> {
                     val start = builder.length
-                    val content = matchedText.substring(2, matchedText.length - 2).replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
+                    val content = matchedText.substring(2, matchedText.length - 2).replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     builder.append(content)
                     builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedText.startsWith("$") && matchedText.endsWith("$") -> {
                     val start = builder.length
-                    val content = matchedText.substring(1, matchedText.length - 1).replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
+                    val content = matchedText.substring(1, matchedText.length - 1).replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     builder.append(content)
                     builder.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -1114,7 +1116,7 @@ object NativePdfExporter {
     ): Float {
         var currentCanvas = canvas
         var yOffset = yStart
-        val formulaText = lines.joinToString("\n").replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+        val formulaText = lines.joinToString("\n").replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
 
         paint.apply {
             textSize = 12f
