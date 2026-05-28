@@ -79,7 +79,7 @@ class TextRepairProcessorTest {
         
         // Assert that the English word and URL are wrapped with Left-to-Right Isolate marks
         assertTrue(result.contains("\u2066English\u2069"))
-        assertTrue(result.contains("\u2066https://google.com\u2069"))
+        assertTrue(result.contains("\u2066URL https://google.com\u2069"))
     }
 
     @Test

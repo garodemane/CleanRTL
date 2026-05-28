@@ -1345,6 +1345,12 @@ fun ComposeCodeBlock(lines: List<String>, fontSize: androidx.compose.ui.unit.Tex
     }
 }
 
+sealed interface MathRenderState {
+    object Loading : MathRenderState
+    object Success : MathRenderState
+    data class Error(val message: String) : MathRenderState
+}
+
 @Composable
 fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUnit) {
     val isDark = isSystemInDarkTheme()
@@ -1353,14 +1359,32 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
         formula.replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "").trim()
     }
     
+    var renderState by remember(cleanFormula) { mutableStateOf<MathRenderState>(MathRenderState.Loading) }
+    val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
+    
+    // Fallback CDN loading + Native fallback if KaTeX CDN fails or is offline
     val htmlContent = remember(cleanFormula, textHtmlColor) {
         """
         <!DOCTYPE html>
         <html>
         <head>
             <meta charset="UTF-8">
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
-            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <!-- Fallback-enabled CDN loading -->
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css';">
+            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js" onerror="loadFallbackKatex()"></script>
+            <script>
+                function loadFallbackKatex() {
+                    var script = document.createElement('script');
+                    script.src = "https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.js";
+                    script.onerror = function() {
+                        var script2 = document.createElement('script');
+                        script2.src = "https://unpkg.com/katex@0.16.8/dist/katex.min.js";
+                        document.head.appendChild(script2);
+                    };
+                    document.head.appendChild(script);
+                }
+            </script>
             <style>
                 body {
                     background-color: transparent;
@@ -1373,7 +1397,7 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
                     overflow: hidden;
                 }
                 #math {
-                    font-size: 1.25em;
+                    font-size: 1.2em;
                     text-align: center;
                 }
                 .katex-display {
@@ -1384,18 +1408,46 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
         <body>
             <div id="math"></div>
             <script>
-                try {
-                    katex.render(${JSONString(cleanFormula)}, document.getElementById('math'), {
-                        displayMode: true,
-                        throwOnError: false
+                function tryRender() {
+                    try {
+                        if (typeof katex === 'undefined') {
+                            throw new Error("KaTeX not loaded");
+                        }
+                        katex.render(${JSONString(cleanFormula)}, document.getElementById('math'), {
+                            displayMode: true,
+                            throwOnError: false
+                        });
+                        if (window.AndroidInterface) {
+                            window.AndroidInterface.onSuccess();
+                        }
+                    } catch (e) {
+                        document.getElementById('math').textContent = ${JSONString(cleanFormula)};
+                        if (window.AndroidInterface) {
+                            window.AndroidInterface.onError(e.message);
+                        }
+                    }
+                }
+                
+                // Wait for KaTeX script to load if it hasn't yet, then render
+                if (typeof katex !== 'undefined') {
+                    tryRender();
+                } else {
+                    window.addEventListener('load', function() {
+                        setTimeout(tryRender, 100);
                     });
-                } catch (e) {
-                    document.getElementById('math').textContent = ${JSONString(cleanFormula)};
                 }
             </script>
         </body>
         </html>
     """.trimIndent()
+    }
+
+    // Safety timeout: if rendering doesn't succeed in 2.5 seconds, automatically show the beautiful native fallback
+    LaunchedEffect(cleanFormula) {
+        kotlinx.coroutines.delay(2500)
+        if (renderState == MathRenderState.Loading) {
+            renderState = MathRenderState.Error("Timeout loading KaTeX CDN")
+        }
     }
 
     Card(
@@ -1409,46 +1461,82 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(80.dp)
+                .heightIn(min = 60.dp, max = 150.dp)
                 .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
-            AndroidView(
-                factory = { context ->
-                    android.webkit.WebView(context).apply {
-                        webViewClient = object : android.webkit.WebViewClient() {
-                            override fun onReceivedError(
-                                view: android.webkit.WebView?,
-                                request: android.webkit.WebResourceRequest?,
-                                error: android.webkit.WebResourceError?
-                            ) {
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                                    android.util.Log.e("ComposeMathBlock", "WebView Error: ${error?.description}")
-                                } else {
-                                    android.util.Log.e("ComposeMathBlock", "WebView Error occurred")
+            if (renderState is MathRenderState.Error) {
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = cleanFormula,
+                            style = TextStyle(
+                                fontFamily = FontFamily.Serif,
+                                fontSize = fontSize,
+                                fontStyle = FontStyle.Italic,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                textDirection = TextDirection.Ltr,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                }
+            } else {
+                val webInterface = remember {
+                    object {
+                        @android.webkit.JavascriptInterface
+                        fun onSuccess() {
+                            mainHandler.post {
+                                renderState = MathRenderState.Success
+                            }
+                        }
+                        @android.webkit.JavascriptInterface
+                        fun onError(err: String) {
+                            mainHandler.post {
+                                renderState = MathRenderState.Error(err)
+                            }
+                        }
+                    }
+                }
+                
+                AndroidView(
+                    factory = { context ->
+                        android.webkit.WebView(context).apply {
+                            webViewClient = object : android.webkit.WebViewClient() {
+                                override fun onReceivedError(
+                                    view: android.webkit.WebView?,
+                                    request: android.webkit.WebResourceRequest?,
+                                    error: android.webkit.WebResourceError?
+                                ) {
+                                    mainHandler.post {
+                                        renderState = MathRenderState.Error("Network error")
+                                    }
                                 }
                             }
+                            webChromeClient = object : android.webkit.WebChromeClient() {}
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            addJavascriptInterface(webInterface, "AndroidInterface")
+                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
                         }
-                        webChromeClient = object : android.webkit.WebChromeClient() {
-                            override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
-                                android.util.Log.d("ComposeMathBlock", "Console: ${consoleMessage?.message()}")
-                                return true
-                            }
+                    },
+                    update = { webView ->
+                        val lastLoaded = webView.tag as? String
+                        if (lastLoaded != htmlContent) {
+                            webView.tag = htmlContent
+                            webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
                         }
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    }
-                },
-                update = { webView ->
-                    val lastLoaded = webView.tag as? String
-                    if (lastLoaded != htmlContent) {
-                        webView.tag = htmlContent
-                        webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }
@@ -1463,6 +1551,9 @@ fun ComposeMermaidBlock(code: String) {
         code.replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "").trim()
     }
 
+    var renderState by remember(cleanCode) { mutableStateOf<MathRenderState>(MathRenderState.Loading) }
+    val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
+
     val htmlContent = remember(cleanCode, mermaidTheme) {
         """
         <!DOCTYPE html>
@@ -1470,13 +1561,48 @@ fun ComposeMermaidBlock(code: String) {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+            <!-- Fallback-enabled CDN loading -->
+            <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" onerror="loadFallbackMermaid()"></script>
             <script>
-                mermaid.initialize({
-                    startOnLoad: true,
-                    theme: '$mermaidTheme',
-                    securityLevel: 'loose'
-                });
+                function loadFallbackMermaid() {
+                    var script = document.createElement('script');
+                    script.src = "https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js";
+                    script.onerror = function() {
+                        var script2 = document.createElement('script');
+                        script2.src = "https://unpkg.com/mermaid@10/dist/mermaid.min.js";
+                        document.head.appendChild(script2);
+                    };
+                    document.head.appendChild(script);
+                }
+            </script>
+            <script>
+                function initAndRender() {
+                    try {
+                        if (typeof mermaid === 'undefined') {
+                            throw new Error("Mermaid not loaded");
+                        }
+                        mermaid.initialize({
+                            startOnLoad: true,
+                            theme: '$mermaidTheme',
+                            securityLevel: 'loose'
+                        });
+                        if (window.AndroidInterface) {
+                            window.AndroidInterface.onSuccess();
+                        }
+                    } catch (e) {
+                        if (window.AndroidInterface) {
+                            window.AndroidInterface.onError(e.message);
+                        }
+                    }
+                }
+                
+                if (typeof mermaid !== 'undefined') {
+                    initAndRender();
+                } else {
+                    window.addEventListener('load', function() {
+                        setTimeout(initAndRender, 100);
+                    });
+                }
             </script>
             <style>
                 body {
@@ -1505,6 +1631,14 @@ fun ComposeMermaidBlock(code: String) {
         """.trimIndent()
     }
 
+    // Safety timeout: if rendering doesn't succeed in 3.5 seconds, automatically show the beautiful native fallback
+    LaunchedEffect(cleanCode) {
+        kotlinx.coroutines.delay(3500)
+        if (renderState == MathRenderState.Loading) {
+            renderState = MathRenderState.Error("Timeout loading Mermaid CDN")
+        }
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1516,46 +1650,95 @@ fun ComposeMermaidBlock(code: String) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(350.dp)
+                .heightIn(min = 100.dp, max = 350.dp)
                 .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
-            AndroidView(
-                factory = { context ->
-                    android.webkit.WebView(context).apply {
-                        webViewClient = object : android.webkit.WebViewClient() {
-                            override fun onReceivedError(
-                                view: android.webkit.WebView?,
-                                request: android.webkit.WebResourceRequest?,
-                                error: android.webkit.WebResourceError?
-                            ) {
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                                    android.util.Log.e("ComposeMermaidBlock", "WebView Error: ${error?.description}")
-                                } else {
-                                    android.util.Log.e("ComposeMermaidBlock", "WebView Error occurred")
+            if (renderState is MathRenderState.Error) {
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "Mermaid Diagram Code (Offline Fallback):",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .background(Color(0xFF1E1E1E), shape = RoundedCornerShape(8.dp))
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                text = cleanCode,
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFD4D4D4),
+                                    textDirection = TextDirection.Ltr
+                                ),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                                    .horizontalScroll(rememberScrollState())
+                            )
+                        }
+                    }
+                }
+            } else {
+                val webInterface = remember {
+                    object {
+                        @android.webkit.JavascriptInterface
+                        fun onSuccess() {
+                            mainHandler.post {
+                                renderState = MathRenderState.Success
+                            }
+                        }
+                        @android.webkit.JavascriptInterface
+                        fun onError(err: String) {
+                            mainHandler.post {
+                                renderState = MathRenderState.Error(err)
+                            }
+                        }
+                    }
+                }
+                
+                AndroidView(
+                    factory = { context ->
+                        android.webkit.WebView(context).apply {
+                            webViewClient = object : android.webkit.WebViewClient() {
+                                override fun onReceivedError(
+                                    view: android.webkit.WebView?,
+                                    request: android.webkit.WebResourceRequest?,
+                                    error: android.webkit.WebResourceError?
+                                ) {
+                                    mainHandler.post {
+                                        renderState = MathRenderState.Error("Network error")
+                                    }
                                 }
                             }
+                            webChromeClient = object : android.webkit.WebChromeClient() {}
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            addJavascriptInterface(webInterface, "AndroidInterface")
+                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
                         }
-                        webChromeClient = object : android.webkit.WebChromeClient() {
-                            override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
-                                android.util.Log.d("ComposeMermaidBlock", "Console: ${consoleMessage?.message()}")
-                                return true
-                            }
+                    },
+                    update = { webView ->
+                        val lastLoaded = webView.tag as? String
+                        if (lastLoaded != htmlContent) {
+                            webView.tag = htmlContent
+                            webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
                         }
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    }
-                },
-                update = { webView ->
-                    val lastLoaded = webView.tag as? String
-                    if (lastLoaded != htmlContent) {
-                        webView.tag = htmlContent
-                        webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }
