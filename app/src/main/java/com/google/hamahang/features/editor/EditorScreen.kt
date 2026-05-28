@@ -1324,8 +1324,12 @@ fun ComposeCodeBlock(lines: List<String>, fontSize: androidx.compose.ui.unit.Tex
 fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUnit) {
     val isDark = isSystemInDarkTheme()
     val textHtmlColor = if (isDark) "#E2E4EC" else "#2D3748"
+    val cleanFormula = remember(formula) {
+        formula.replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+    }
     
-    val htmlContent = """
+    val htmlContent = remember(cleanFormula, textHtmlColor) {
+        """
         <!DOCTYPE html>
         <html>
         <head>
@@ -1356,17 +1360,18 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
             <div id="math"></div>
             <script>
                 try {
-                    katex.render(${JSONString(formula)}, document.getElementById('math'), {
+                    katex.render(${JSONString(cleanFormula)}, document.getElementById('math'), {
                         displayMode: true,
                         throwOnError: false
                     });
                 } catch (e) {
-                    document.getElementById('math').textContent = ${JSONString(formula)};
+                    document.getElementById('math').textContent = ${JSONString(cleanFormula)};
                 }
             </script>
         </body>
         </html>
     """.trimIndent()
+    }
 
     Card(
         modifier = Modifier
@@ -1385,14 +1390,37 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
         ) {
             AndroidView(
                 factory = { context ->
-                    WebView(context).apply {
-                        webViewClient = WebViewClient()
+                    android.webkit.WebView(context).apply {
+                        webViewClient = object : android.webkit.WebViewClient() {
+                            override fun onReceivedError(
+                                view: android.webkit.WebView?,
+                                request: android.webkit.WebResourceRequest?,
+                                error: android.webkit.WebResourceError?
+                            ) {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                    android.util.Log.e("ComposeMathBlock", "WebView Error: ${error?.description}")
+                                } else {
+                                    android.util.Log.e("ComposeMathBlock", "WebView Error occurred")
+                                }
+                            }
+                        }
+                        webChromeClient = object : android.webkit.WebChromeClient() {
+                            override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                                android.util.Log.d("ComposeMathBlock", "Console: ${consoleMessage?.message()}")
+                                return true
+                            }
+                        }
                         settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
                         setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     }
                 },
                 update = { webView ->
-                    webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
+                    val lastLoaded = webView.tag as? String
+                    if (lastLoaded != htmlContent) {
+                        webView.tag = htmlContent
+                        webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             )

@@ -21,10 +21,53 @@ object HtmlExporter {
         var inCodeBlock = false
         val codeLines = mutableListOf<String>()
 
+        var inMathBlock = false
+        val mathLines = mutableListOf<String>()
+
         var idx = 0
         while (idx < paragraphs.size) {
             val paragraph = paragraphs[idx]
             val trimmed = paragraph.trim()
+
+            // Robustly strip any leading/trailing bidi control characters for math block checks
+            val cleanTrimmed = trimmed
+                .replace(Regex("^[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+"), "")
+                .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                .trim()
+
+            if (inMathBlock) {
+                if (cleanTrimmed.endsWith("$$")) {
+                    val cleanLine = cleanTrimmed.removeSuffix("$$")
+                    if (cleanLine.isNotEmpty()) {
+                        mathLines.add(cleanLine)
+                    }
+                    val fullFormula = mathLines.joinToString("\n")
+                        .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
+                    htmlContent.append("<div class='block-math' dir='ltr'>\n\$\$\n$fullFormula\n\$\$\n</div>\n")
+                    mathLines.clear()
+                    inMathBlock = false
+                } else {
+                    mathLines.add(paragraph)
+                }
+                idx++
+                continue
+            }
+
+            if (cleanTrimmed.startsWith("$$")) {
+                if (cleanTrimmed.endsWith("$$") && cleanTrimmed.length > 2) {
+                    val cleanFormula = cleanTrimmed.removePrefix("$$").removeSuffix("$$")
+                        .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
+                    htmlContent.append("<div class='block-math' dir='ltr'>\n\$\$\n$cleanFormula\n\$\$\n</div>\n")
+                } else {
+                    inMathBlock = true
+                    val cleanLine = cleanTrimmed.removePrefix("$$")
+                    if (cleanLine.isNotEmpty()) {
+                        mathLines.add(cleanLine)
+                    }
+                }
+                idx++
+                continue
+            }
 
             // 1. Code Block parsing
             if (trimmed.startsWith("```")) {
@@ -204,6 +247,13 @@ object HtmlExporter {
         if (inCodeBlock && codeLines.isNotEmpty()) {
             val codeContent = codeLines.joinToString("\n")
             htmlContent.append("<pre><code>$codeContent</code></pre>\n")
+        }
+
+        // Final math block fallback
+        if (inMathBlock && mathLines.isNotEmpty()) {
+            val fullFormula = mathLines.joinToString("\n")
+                .replace(Regex("[\\u200E\\u200F\\u2066\\u2067\\u2068\\u2069]"), "")
+            htmlContent.append("<div class='block-math' dir='ltr'>\n\$\$\n$fullFormula\n\$\$\n</div>\n")
         }
 
         // Build premium, responsive HTML template with CSS styling
@@ -404,6 +454,18 @@ object HtmlExporter {
                     .text-left { text-align: left; }
                     .text-center { text-align: center; }
                     .text-right { text-align: right; }
+
+                    .block-math {
+                        margin: 24px 0;
+                        padding: 16px;
+                        background-color: var(--table-zebra-bg);
+                        border: 1px solid var(--border-color);
+                        border-radius: 8px;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        overflow-x: auto;
+                    }
                 </style>
             </head>
             <body>
