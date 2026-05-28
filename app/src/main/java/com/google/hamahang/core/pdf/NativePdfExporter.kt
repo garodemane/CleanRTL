@@ -716,8 +716,8 @@ object NativePdfExporter {
         }
 
         // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
-        // Compiled with case insensitivity (?i) and dot matches all (?s), with explicit unicode spaces matching
-        val regex = Regex("(?is)(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[\\s\\u00A0]+style[\\s\\u00A0]*=[\\s\\u00A0]*[^>]+>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[\\s\\u00A0]+[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
+        // Compiled with case insensitivity (?i) and dot matches all (?s), with explicit unicode spaces matching, attribute-flexible
+        val regex = Regex("(?is)(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
         val matches = regex.findAll(input)
 
         for (match in matches) {
@@ -760,7 +760,7 @@ object NativePdfExporter {
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("<font") || (matchedTextLower.startsWith("<") && matchedTextLower.contains("font")) -> {
-                    val fontRegex = Regex("(?is)<[\\s\\u00A0]*font[\\s\\u00A0]+([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
+                    val fontRegex = Regex("(?is)<[\\s\\u00A0]*font([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
                     val fontMatch = fontRegex.matchEntire(matchedText)
                     if (fontMatch != null) {
                         val attrsStr = fontMatch.groupValues[1]
@@ -769,13 +769,13 @@ object NativePdfExporter {
                         var color: Int? = null
                         var fontSizePx: Float? = null
 
-                        val colorMatch = Regex("(?i)color[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+)").find(attrsStr)
+                        val colorMatch = Regex("(?i)color[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                         if (colorMatch != null) {
                             val colorValue = cleanQuotes(colorMatch.groupValues[1])
                             color = parseHtmlColorToInt(colorValue)
                         }
 
-                        val sizeMatch = Regex("(?i)size[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+)").find(attrsStr)
+                        val sizeMatch = Regex("(?i)size[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                         if (sizeMatch != null) {
                             val sizeValue = cleanQuotes(sizeMatch.groupValues[1])
                             fontSizePx = parseHtmlFontSizeAttributeToPx(sizeValue, baseFontSize)
@@ -795,25 +795,30 @@ object NativePdfExporter {
                     }
                 }
                 matchedTextLower.startsWith("<span") || (matchedTextLower.startsWith("<") && matchedTextLower.contains("span")) -> {
-                    val spanRegex = Regex("(?is)<[\\s\\u00A0]*span[\\s\\u00A0]+style[\\s\\u00A0]*=[\\s\\u00A0]*([^>]+)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
+                    val spanRegex = Regex("(?is)<[\\s\\u00A0]*span([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
                     val spanMatch = spanRegex.matchEntire(matchedText)
                     if (spanMatch != null) {
-                        val rawStyle = spanMatch.groupValues[1]
+                        val attrsStr = spanMatch.groupValues[1]
                         val innerText = spanMatch.groupValues[2]
-                        val styleStr = cleanQuotes(rawStyle)
 
                         var color: Int? = null
                         var fontSizePx: Float? = null
 
-                        styleStr.split(";").forEach { stylePart ->
-                            val parts = stylePart.split(":")
-                            if (parts.size == 2) {
-                                val key = parts[0].replace(Regex("[\\s\\u00A0]+"), "").trim().lowercase()
-                                val value = parts[1].replace(Regex("[\\s\\u00A0]+"), " ").trim()
-                                if (key == "color") {
-                                    color = parseHtmlColorToInt(value)
-                                } else if (key == "font-size") {
-                                    fontSizePx = parseHtmlFontSizeToPx(value, baseFontSize)
+                        val styleMatch = Regex("(?i)style[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
+                        if (styleMatch != null) {
+                            val rawStyle = styleMatch.groupValues[1]
+                            val styleStr = cleanQuotes(rawStyle)
+
+                            styleStr.split(";").forEach { stylePart ->
+                                val parts = stylePart.split(":")
+                                if (parts.size == 2) {
+                                    val key = parts[0].replace(Regex("[\\s\\u00A0]+"), "").trim().lowercase()
+                                    val value = parts[1].replace(Regex("[\\s\\u00A0]+"), " ").trim()
+                                    if (key == "color") {
+                                        color = parseHtmlColorToInt(value)
+                                    } else if (key == "font-size") {
+                                        fontSizePx = parseHtmlFontSizeToPx(value, baseFontSize)
+                                    }
                                 }
                             }
                         }

@@ -1371,14 +1371,16 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <!-- Fallback-enabled CDN loading -->
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css';">
-            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js" onerror="loadFallbackKatex()"></script>
+            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js" onload="tryRender()" onerror="loadFallbackKatex()"></script>
             <script>
                 function loadFallbackKatex() {
                     var script = document.createElement('script');
                     script.src = "https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.js";
+                    script.onload = tryRender;
                     script.onerror = function() {
                         var script2 = document.createElement('script');
                         script2.src = "https://unpkg.com/katex@0.16.8/dist/katex.min.js";
+                        script2.onload = tryRender;
                         document.head.appendChild(script2);
                     };
                     document.head.appendChild(script);
@@ -1437,9 +1439,9 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
     """.trimIndent()
     }
 
-    // Safety timeout: if rendering doesn't succeed in 2.5 seconds, automatically show the beautiful native fallback
+    // Safety timeout: if rendering doesn't succeed in 8.0 seconds, automatically show the beautiful native fallback
     LaunchedEffect(cleanFormula) {
-        kotlinx.coroutines.delay(2500)
+        kotlinx.coroutines.delay(8000)
         if (renderState == MathRenderState.Loading) {
             renderState = MathRenderState.Error("Timeout loading KaTeX CDN")
         }
@@ -1460,6 +1462,14 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
                 .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
+            if (renderState is MathRenderState.Loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                )
+            }
+            
             if (renderState is MathRenderState.Error) {
                 androidx.compose.foundation.text.selection.SelectionContainer {
                     androidx.compose.foundation.layout.Box(
@@ -1550,14 +1560,16 @@ fun ComposeMermaidBlock(code: String) {
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <!-- Fallback-enabled CDN loading -->
-            <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" onerror="loadFallbackMermaid()"></script>
+            <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" onload="initAndRender()" onerror="loadFallbackMermaid()"></script>
             <script>
                 function loadFallbackMermaid() {
                     var script = document.createElement('script');
                     script.src = "https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js";
+                    script.onload = initAndRender;
                     script.onerror = function() {
                         var script2 = document.createElement('script');
                         script2.src = "https://unpkg.com/mermaid@10/dist/mermaid.min.js";
+                        script2.onload = initAndRender;
                         document.head.appendChild(script2);
                     };
                     document.head.appendChild(script);
@@ -1570,10 +1582,11 @@ fun ComposeMermaidBlock(code: String) {
                             throw new Error("Mermaid not loaded");
                         }
                         mermaid.initialize({
-                            startOnLoad: true,
+                            startOnLoad: false,
                             theme: '$mermaidTheme',
                             securityLevel: 'loose'
                         });
+                        mermaid.init(undefined, document.querySelectorAll('.mermaid'));
                         console.log("MERMAID_RENDER_SUCCESS");
                     } catch (e) {
                         console.log("MERMAID_RENDER_ERROR:" + e.message);
@@ -1615,9 +1628,9 @@ fun ComposeMermaidBlock(code: String) {
         """.trimIndent()
     }
 
-    // Safety timeout: if rendering doesn't succeed in 3.5 seconds, automatically show the beautiful native fallback
+    // Safety timeout: if rendering doesn't succeed in 8.0 seconds, automatically show the beautiful native fallback
     LaunchedEffect(cleanCode) {
-        kotlinx.coroutines.delay(3500)
+        kotlinx.coroutines.delay(8000)
         if (renderState == MathRenderState.Loading) {
             renderState = MathRenderState.Error("Timeout loading Mermaid CDN")
         }
@@ -1638,6 +1651,14 @@ fun ComposeMermaidBlock(code: String) {
                 .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
+            if (renderState is MathRenderState.Loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                )
+            }
+
             if (renderState is MathRenderState.Error) {
                 androidx.compose.foundation.text.selection.SelectionContainer {
                     Column(
@@ -2099,8 +2120,8 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
     }
 
     // Match bold, italic, inline code, inline math, HTML span tags, or HTML font tags
-    // Compiled with case insensitivity (?i) and dot matches all (?s), with explicit unicode spaces matching
-    val regex = Regex("(?is)(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[\\s\\u00A0]+style[\\s\\u00A0]*=[\\s\\u00A0]*[^>]+>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[\\s\\u00A0]+[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
+    // Compiled with case insensitivity (?i) and dot matches all (?s), with explicit unicode spaces matching, attribute-flexible
+    val regex = Regex("(?is)(\\*\\*.*?\\*\\*|\\*.*?\\*|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>)")
     val matches = regex.findAll(input)
 
     for (match in matches) {
@@ -2137,7 +2158,7 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                 builder.pop()
             }
             matchedTextLower.startsWith("<font") || (matchedTextLower.startsWith("<") && matchedTextLower.contains("font")) -> {
-                val fontRegex = Regex("(?is)<[\\s\\u00A0]*font[\\s\\u00A0]+([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
+                val fontRegex = Regex("(?is)<[\\s\\u00A0]*font([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
                 val fontMatch = fontRegex.matchEntire(matchedText)
                 if (fontMatch != null) {
                     val attrsStr = fontMatch.groupValues[1]
@@ -2146,13 +2167,13 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                     var color: Color? = null
                     var fontSize: androidx.compose.ui.unit.TextUnit? = null
 
-                    val colorMatch = Regex("(?i)color[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+)").find(attrsStr)
+                    val colorMatch = Regex("(?i)color[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                     if (colorMatch != null) {
                         val colorValue = cleanQuotes(colorMatch.groupValues[1])
                         color = parseHtmlColor(colorValue)
                     }
 
-                    val sizeMatch = Regex("(?i)size[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+)").find(attrsStr)
+                    val sizeMatch = Regex("(?i)size[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                     if (sizeMatch != null) {
                         val sizeValue = cleanQuotes(sizeMatch.groupValues[1])
                         fontSize = parseHtmlFontSizeAttribute(sizeValue)
@@ -2169,25 +2190,30 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color): AnnotatedStrin
                 }
             }
             matchedTextLower.startsWith("<span") || (matchedTextLower.startsWith("<") && matchedTextLower.contains("span")) -> {
-                val spanRegex = Regex("(?is)<[\\s\\u00A0]*span[\\s\\u00A0]+style[\\s\\u00A0]*=[\\s\\u00A0]*([^>]+)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
+                val spanRegex = Regex("(?is)<[\\s\\u00A0]*span([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
                 val spanMatch = spanRegex.matchEntire(matchedText)
                 if (spanMatch != null) {
-                    val rawStyle = spanMatch.groupValues[1]
+                    val attrsStr = spanMatch.groupValues[1]
                     val innerText = spanMatch.groupValues[2]
-                    val styleStr = cleanQuotes(rawStyle)
 
                     var color: Color? = null
                     var fontSize: androidx.compose.ui.unit.TextUnit? = null
 
-                    styleStr.split(";").forEach { stylePart ->
-                        val parts = stylePart.split(":")
-                        if (parts.size == 2) {
-                            val key = parts[0].replace(Regex("[\\s\\u00A0]+"), "").trim().lowercase()
-                            val value = parts[1].replace(Regex("[\\s\\u00A0]+"), " ").trim()
-                            if (key == "color") {
-                                color = parseHtmlColor(value)
-                            } else if (key == "font-size") {
-                                fontSize = parseHtmlFontSize(value)
+                    val styleMatch = Regex("(?i)style[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
+                    if (styleMatch != null) {
+                        val rawStyle = styleMatch.groupValues[1]
+                        val styleStr = cleanQuotes(rawStyle)
+
+                        styleStr.split(";").forEach { stylePart ->
+                            val parts = stylePart.split(":")
+                            if (parts.size == 2) {
+                                val key = parts[0].replace(Regex("[\\s\\u00A0]+"), "").trim().lowercase()
+                                val value = parts[1].replace(Regex("[\\s\\u00A0]+"), " ").trim()
+                                if (key == "color") {
+                                    color = parseHtmlColor(value)
+                                } else if (key == "font-size") {
+                                    fontSize = parseHtmlFontSize(value)
+                                }
                             }
                         }
                     }
