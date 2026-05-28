@@ -361,18 +361,20 @@ object NativePdfExporter {
     ): Float {
         var currentCanvas = canvas
         var yOffset = yStart
-        val codeText = lines.joinToString("\n")
+        val rawCode = lines.joinToString("\n")
+        val preprocessedCode = preprocessCodeBidi(rawCode)
+        val highlightedCode = highlightPdfCode(preprocessedCode)
 
         paint.apply {
             textSize = 10f
             this.typeface = typeface
-            color = Color.rgb(80, 80, 80)
+            color = Color.rgb(212, 212, 212) // Default text color: #D4D4D4
         }
 
         val textLayout = StaticLayout.Builder.obtain(
-            codeText,
+            highlightedCode,
             0,
-            codeText.length,
+            highlightedCode.length,
             paint,
             (width - 24f).toInt()
         )
@@ -388,9 +390,9 @@ object NativePdfExporter {
             yOffset = margin
         }
 
-        // Draw Card Background for Code Block
+        // Draw Card Background for Code Block (Dark Theme to match modern preview)
         val bgPaint = Paint().apply {
-            color = Color.rgb(240, 241, 245)
+            color = Color.rgb(30, 30, 30) // Dark background #1E1E1E
             style = Paint.Style.FILL
         }
         val cardRect = RectF(margin, yOffset, margin + width, yOffset + blockHeight)
@@ -742,5 +744,180 @@ object NativePdfExporter {
             clean.endsWith("%") -> num * 0.01f * baseFontSize
             else -> num
         }
+    }
+
+    private fun containsPersian(text: String): Boolean {
+        return text.any { it in '\u0600'..'\u06FF' || it == '\uFB8A' || it == '\u067E' || it == '\u0686' || it == '\u06AF' }
+    }
+
+    private fun preprocessCodeBidi(code: String): String {
+        val lines = code.split("\n")
+        val processedLines = lines.map { line ->
+            if (line.isBlank()) return@map line
+
+            // Check if there is a comment
+            val commentMatch = Regex("(.*)(#|//)(.*)").matchEntire(line)
+            if (commentMatch != null) {
+                val codePart = commentMatch.groupValues[1]
+                val prefix = commentMatch.groupValues[2]
+                val commentText = commentMatch.groupValues[3]
+                if (containsPersian(commentText)) {
+                    val cleanComment = commentText.trimStart()
+                    val spaces = commentText.substring(0, commentText.length - cleanComment.length)
+                    return@map "$codePart\u200E$prefix$spaces\u2067$cleanComment\u2069"
+                }
+            }
+
+            var processedLine = line
+            val hasPersian = containsPersian(processedLine)
+            
+            if (hasPersian) {
+                // 1. Triple quotes docstring on a single line
+                val tripleQuoteRegex = Regex("\"\"\"([^\"]*)\"\"\"")
+                processedLine = tripleQuoteRegex.replace(processedLine) { match ->
+                    val content = match.groupValues[1]
+                    if (containsPersian(content)) {
+                        "\"\"\"\u2067$content\u2069\"\"\""
+                    } else {
+                        match.value
+                    }
+                }
+
+                // 2. Normal string literals in quotes
+                val stringRegex = Regex("\"([^\"]*)\"|'([^']*)'")
+                processedLine = stringRegex.replace(processedLine) { match ->
+                    val content = match.groupValues[1].ifEmpty { match.groupValues[2] }
+                    if (containsPersian(content)) {
+                        if (match.value.startsWith("\"")) {
+                            "\"\u2067$content\u2069\""
+                        } else {
+                            "'\u2067$content\u2069'"
+                        }
+                    } else {
+                        match.value
+                    }
+                }
+
+                // 3. If the entire line is a Farsi docstring line (e.g. inside triple quotes but on its own line)
+                if (containsPersian(processedLine) && !processedLine.contains("\"") && !processedLine.contains("'")) {
+                    val trimmed = processedLine.trimStart()
+                    val indent = processedLine.substring(0, processedLine.length - trimmed.length)
+                    processedLine = "$indent\u200E\u2067$trimmed\u2069"
+                }
+            }
+
+            processedLine
+        }
+        return processedLines.joinToString("\n")
+    }
+
+    private fun highlightPdfCode(code: String): SpannableStringBuilder {
+        val ssb = SpannableStringBuilder(code)
+        val excludedRanges = mutableListOf<IntRange>()
+
+        // 1. Comments: from '#' or '//' to end of line (grey-green like VS Code)
+        val commentRegex = Regex("(#|//).*")
+        commentRegex.findAll(code).forEach { match ->
+            excludedRanges.add(match.range)
+            ssb.setSpan(
+                ForegroundColorSpan(Color.rgb(106, 153, 85)),
+                match.range.first,
+                match.range.last + 1,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            ssb.setSpan(
+                StyleSpan(Typeface.ITALIC),
+                match.range.first,
+                match.range.last + 1,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        // 2. Docstrings / Triple quoted strings: """ ... """
+        val tripleQuoteRegex = Regex("\"\"\"[\\s\\S]*?\"\"\"")
+        tripleQuoteRegex.findAll(code).forEach { match ->
+            if (excludedRanges.none { it.contains(match.range.first) }) {
+                excludedRanges.add(match.range)
+                ssb.setSpan(
+                    ForegroundColorSpan(Color.rgb(106, 153, 85)),
+                    match.range.first,
+                    match.range.last + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+        }
+
+        // 3. String literals: " ... " or ' ... '
+        val stringRegex = Regex("\"[^\"]*\"|'[^']*'")
+        stringRegex.findAll(code).forEach { match ->
+            if (excludedRanges.none { it.contains(match.range.first) }) {
+                excludedRanges.add(match.range)
+                ssb.setSpan(
+                    ForegroundColorSpan(Color.rgb(206, 145, 120)),
+                    match.range.first,
+                    match.range.last + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+        }
+
+        fun isExcluded(idx: Int): Boolean {
+            return excludedRanges.any { it.contains(idx) }
+        }
+
+        // 4. Keywords: purple like VS Code
+        val keywords = setOf(
+            "import", "from", "def", "class", "return", "try", "except", "as", "print",
+            "fun", "val", "var", "if", "else", "while", "for", "in", "null", "true", "false",
+            "None", "Exception", "and", "or", "not", "is", "pass", "lambda", "const", "let",
+            "function", "async", "await", "package", "public", "private", "protected"
+        )
+        val wordRegex = Regex("\\b[a-zA-Z_][a-zA-Z0-9_]*\\b")
+        wordRegex.findAll(code).forEach { match ->
+            val word = match.value
+            if (word in keywords && !isExcluded(match.range.first)) {
+                ssb.setSpan(
+                    ForegroundColorSpan(Color.rgb(197, 134, 192)),
+                    match.range.first,
+                    match.range.last + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                ssb.setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    match.range.first,
+                    match.range.last + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+        }
+
+        // 5. Function names: yellow/gold like VS Code
+        val functionDefRegex = Regex("(def|fun|function)\\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+        functionDefRegex.findAll(code).forEach { match ->
+            val group = match.groups[2]
+            if (group != null && !isExcluded(group.range.first)) {
+                ssb.setSpan(
+                    ForegroundColorSpan(Color.rgb(220, 220, 170)),
+                    group.range.first,
+                    group.range.last + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+        }
+
+        // 6. Numbers: light green/yellow like VS Code
+        val numberRegex = Regex("\\b\\d+(\\.\\d+)?\\b")
+        numberRegex.findAll(code).forEach { match ->
+            if (!isExcluded(match.range.first)) {
+                ssb.setSpan(
+                    ForegroundColorSpan(Color.rgb(181, 206, 168)),
+                    match.range.first,
+                    match.range.last + 1,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+        }
+
+        return ssb
     }
 }

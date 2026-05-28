@@ -157,4 +157,17 @@ class TextRepairProcessorTest {
         // isParagraphRtl should correctly identify the paragraph as RTL
         assertTrue("RTL text with inline HTML spans should be detected as RTL", TextRepairProcessor.isParagraphRtl(rawInput))
     }
+
+    @Test
+    fun testCodeBlockBypassInRepairText() {
+        val codeText = """
+            ```python
+            # تست تابع
+            user_prompt = "چرا یادگیری گیتار سخت است؟"
+            ```
+        """.trimIndent()
+        
+        val repaired = TextRepairProcessor.repairText(codeText)
+        assertEquals(codeText, repaired)
+    }
 }

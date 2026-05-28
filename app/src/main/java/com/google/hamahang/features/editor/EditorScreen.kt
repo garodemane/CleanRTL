@@ -900,6 +900,20 @@ fun MarkdownPreviewPane(
             var idx = 0
             while (idx < paragraphs.size) {
                 val paragraph = paragraphs[idx]
+
+                if (inCodeBlock) {
+                    val trimmed = paragraph.trim()
+                    if (trimmed.startsWith("```")) {
+                        ComposeCodeBlock(lines = codeLines, fontSize = (baseFontSize * 0.85).sp)
+                        codeLines.clear()
+                        inCodeBlock = false
+                    } else {
+                        codeLines.add(paragraph)
+                    }
+                    idx++
+                    continue
+                }
+
                 if (paragraph.isBlank()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     idx++
@@ -915,8 +929,8 @@ fun MarkdownPreviewPane(
                 val cleanParagraph = if (bidiPrefix.isNotEmpty()) paragraph.substring(1) else paragraph
                 val trimmed = cleanParagraph.trim()
 
-                // Check if this line starts a table (and not inside code block)
-                if (!inCodeBlock && trimmed.startsWith("|") && trimmed.endsWith("|")) {
+                // Check if this line starts a table
+                if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
                     if (idx + 1 < paragraphs.size) {
                         val nextLine = paragraphs[idx + 1]
                         val nextBidiPrefix = when {
@@ -967,19 +981,7 @@ fun MarkdownPreviewPane(
                 }
 
                 if (trimmed.startsWith("```")) {
-                    if (inCodeBlock) {
-                        ComposeCodeBlock(lines = codeLines, fontSize = (baseFontSize * 0.85).sp)
-                        codeLines.clear()
-                        inCodeBlock = false
-                    } else {
-                        inCodeBlock = true
-                    }
-                    idx++
-                    continue
-                }
-
-                if (inCodeBlock) {
-                    codeLines.add(paragraph)
+                    inCodeBlock = true
                     idx++
                     continue
                 }
@@ -1167,9 +1169,77 @@ fun MarkdownBlockquote(text: String, fontSize: androidx.compose.ui.unit.TextUnit
     }
 }
 
+fun containsPersian(text: String): Boolean {
+    return text.any { it in '\u0600'..'\u06FF' || it == '\uFB8A' || it == '\u067E' || it == '\u0686' || it == '\u06AF' }
+}
+
+fun preprocessCodeBidi(code: String): String {
+    val lines = code.split("\n")
+    val processedLines = lines.map { line ->
+        if (line.isBlank()) return@map line
+
+        // Check if there is a comment
+        val commentMatch = Regex("(.*)(#|//)(.*)").matchEntire(line)
+        if (commentMatch != null) {
+            val codePart = commentMatch.groupValues[1]
+            val prefix = commentMatch.groupValues[2]
+            val commentText = commentMatch.groupValues[3]
+            if (containsPersian(commentText)) {
+                val cleanComment = commentText.trimStart()
+                val spaces = commentText.substring(0, commentText.length - cleanComment.length)
+                return@map "$codePart\u200E$prefix$spaces\u2067$cleanComment\u2069"
+            }
+        }
+
+        var processedLine = line
+        val hasPersian = containsPersian(processedLine)
+        
+        if (hasPersian) {
+            // 1. Triple quotes docstring on a single line
+            val tripleQuoteRegex = Regex("\"\"\"([^\"]*)\"\"\"")
+            processedLine = tripleQuoteRegex.replace(processedLine) { match ->
+                val content = match.groupValues[1]
+                if (containsPersian(content)) {
+                    "\"\"\"\u2067$content\u2069\"\"\""
+                } else {
+                    match.value
+                }
+            }
+
+            // 2. Normal string literals in quotes
+            val stringRegex = Regex("\"([^\"]*)\"|'([^']*)'")
+            processedLine = stringRegex.replace(processedLine) { match ->
+                val content = match.groupValues[1].ifEmpty { match.groupValues[2] }
+                if (containsPersian(content)) {
+                    if (match.value.startsWith("\"")) {
+                        "\"\u2067$content\u2069\""
+                    } else {
+                        "'\u2067$content\u2069'"
+                    }
+                } else {
+                    match.value
+                }
+            }
+
+            // 3. If the entire line is a Farsi docstring line (e.g. inside triple quotes but on its own line)
+            if (containsPersian(processedLine) && !processedLine.contains("\"") && !processedLine.contains("'")) {
+                val trimmed = processedLine.trimStart()
+                val indent = processedLine.substring(0, processedLine.length - trimmed.length)
+                processedLine = "$indent\u200E\u2067$trimmed\u2069"
+            }
+        }
+
+        processedLine
+    }
+    return processedLines.joinToString("\n")
+}
+
 @Composable
 fun ComposeCodeBlock(lines: List<String>, fontSize: androidx.compose.ui.unit.TextUnit) {
-    val codeText = lines.joinToString("\n")
+    val rawCode = lines.joinToString("\n")
+    val codeText = preprocessCodeBidi(rawCode)
+    val highlightedCode = highlightCode(codeText)
+    
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1184,7 +1254,7 @@ fun ComposeCodeBlock(lines: List<String>, fontSize: androidx.compose.ui.unit.Tex
                 .padding(12.dp)
         ) {
             Text(
-                text = codeText,
+                text = highlightedCode,
                 style = TextStyle(
                     fontSize = fontSize,
                     fontFamily = FontFamily.Monospace,
@@ -1195,6 +1265,98 @@ fun ComposeCodeBlock(lines: List<String>, fontSize: androidx.compose.ui.unit.Tex
             )
         }
     }
+}
+
+fun highlightCode(code: String): AnnotatedString {
+    val builder = AnnotatedString.Builder(code)
+    val excludedRanges = mutableListOf<IntRange>()
+
+    // 1. Comments: from '#' or '//' to end of line (green-grey like VS Code)
+    val commentRegex = Regex("(#|//).*")
+    commentRegex.findAll(code).forEach { match ->
+        excludedRanges.add(match.range)
+        builder.addStyle(
+            SpanStyle(color = Color(0xFF6A9955), fontStyle = FontStyle.Italic),
+            match.range.first,
+            match.range.last + 1
+        )
+    }
+
+    // 2. Docstrings / Triple quoted strings: """ ... """
+    val tripleQuoteRegex = Regex("\"\"\"[\\s\\S]*?\"\"\"")
+    tripleQuoteRegex.findAll(code).forEach { match ->
+        if (excludedRanges.none { it.contains(match.range.first) }) {
+            excludedRanges.add(match.range)
+            builder.addStyle(
+                SpanStyle(color = Color(0xFF6A9955)),
+                match.range.first,
+                match.range.last + 1
+            )
+        }
+    }
+
+    // 3. String literals: " ... " or ' ... '
+    val stringRegex = Regex("\"[^\"]*\"|'[^']*'")
+    stringRegex.findAll(code).forEach { match ->
+        if (excludedRanges.none { it.contains(match.range.first) }) {
+            excludedRanges.add(match.range)
+            builder.addStyle(
+                SpanStyle(color = Color(0xFFCE9178)),
+                match.range.first,
+                match.range.last + 1
+            )
+        }
+    }
+
+    fun isExcluded(idx: Int): Boolean {
+        return excludedRanges.any { it.contains(idx) }
+    }
+
+    // 4. Keywords: purple like VS Code
+    val keywords = setOf(
+        "import", "from", "def", "class", "return", "try", "except", "as", "print",
+        "fun", "val", "var", "if", "else", "while", "for", "in", "null", "true", "false",
+        "None", "Exception", "and", "or", "not", "is", "pass", "lambda", "const", "let",
+        "function", "async", "await", "package", "public", "private", "protected"
+    )
+    val wordRegex = Regex("\\b[a-zA-Z_][a-zA-Z0-9_]*\\b")
+    wordRegex.findAll(code).forEach { match ->
+        val word = match.value
+        if (word in keywords && !isExcluded(match.range.first)) {
+            builder.addStyle(
+                SpanStyle(color = Color(0xFFC586C0), fontWeight = FontWeight.Bold),
+                match.range.first,
+                match.range.last + 1
+            )
+        }
+    }
+
+    // 5. Function names: yellow/gold like VS Code
+    val functionDefRegex = Regex("(def|fun|function)\\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+    functionDefRegex.findAll(code).forEach { match ->
+        val group = match.groups[2]
+        if (group != null && !isExcluded(group.range.first)) {
+            builder.addStyle(
+                SpanStyle(color = Color(0xFFDCDCAA)),
+                group.range.first,
+                group.range.last + 1
+            )
+        }
+    }
+
+    // 6. Numbers: light green/yellow like VS Code
+    val numberRegex = Regex("\\b\\d+(\\.\\d+)?\\b")
+    numberRegex.findAll(code).forEach { match ->
+        if (!isExcluded(match.range.first)) {
+            builder.addStyle(
+                SpanStyle(color = Color(0xFFB5CEA8)),
+                match.range.first,
+                match.range.last + 1
+            )
+        }
+    }
+
+    return builder.toAnnotatedString()
 }
 
 @Composable

@@ -22,7 +22,19 @@ object TextRepairProcessor {
 
         // Split text by newlines safely supporting Windows, Linux, Mac endings
         val paragraphs = input.split(Regex("\\R"))
+        var inCodeBlock = false
         val repairedParagraphs = paragraphs.map { paragraph ->
+            val trimmed = paragraph.trim()
+            if (trimmed.startsWith("```")) {
+                inCodeBlock = !inCodeBlock
+                return@map paragraph
+            }
+
+            if (inCodeBlock) {
+                // Return code block lines completely untouched!
+                return@map paragraph
+            }
+
             if (paragraph.isBlank()) return@map paragraph
 
             val isRtl = isParagraphRtl(paragraph)
