@@ -351,6 +351,7 @@ object NativePdfExporter {
             var isHeader = false
             var isList = false
             var isQuote = false
+            var quoteLevel = 0
             var displayText = paragraph
 
             // 2. Headings (#)
@@ -408,10 +409,17 @@ object NativePdfExporter {
             }
             // 4. Blockquotes (>)
             else if (trimmed.startsWith(">")) {
-                displayText = trimmed.substring(1).trim()
+                var qL = 0
+                var tempStr = trimmed
+                while (tempStr.startsWith(">")) {
+                    qL++
+                    tempStr = tempStr.substring(1).trim()
+                }
+                displayText = tempStr
                 currentTypeface = italicTypeface
                 currentTextColor = Color.DKGRAY
                 isQuote = true
+                quoteLevel = qL
             }
 
             // Parse markdown and HTML style tags into spanned text
@@ -434,9 +442,10 @@ object NativePdfExporter {
             val alignment = Layout.Alignment.ALIGN_NORMAL
             val directionHeuristic = if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
 
+            val quoteIndent = if (isQuote) quoteLevel * 8f + 12f else 0f
             val listIndent = listLevel * 16f
             val indentMargin = if (isList) listIndent + 16f else listIndent
-            val layoutWidth = (printableWidth - indentMargin).toInt()
+            val layoutWidth = (printableWidth - indentMargin - quoteIndent).toInt()
 
             val textLayout = StaticLayout.Builder.obtain(
                 spannedText,
@@ -474,12 +483,16 @@ object NativePdfExporter {
                     strokeWidth = 3f
                     style = Paint.Style.STROKE
                 }
-                if (isRtl) {
-                    canvas.drawLine(pageWidth - margin, yOffset, pageWidth - margin, yOffset + layoutHeight, borderPaint)
-                } else {
-                    canvas.drawLine(margin, yOffset, margin, yOffset + layoutHeight, borderPaint)
+                for (i in 0 until quoteLevel) {
+                    val offset = i * 8f
+                    if (isRtl) {
+                        canvas.drawLine(pageWidth - margin - offset, yOffset, pageWidth - margin - offset, yOffset + layoutHeight, borderPaint)
+                    } else {
+                        canvas.drawLine(margin + offset, yOffset, margin + offset, yOffset + layoutHeight, borderPaint)
+                    }
                 }
-                canvas.translate(if (isRtl) -15f else 15f, 0f)
+                val totalTranslate = quoteLevel * 8f + 6f
+                canvas.translate(if (isRtl) -totalTranslate else totalTranslate, 0f)
             }
 
             canvas.translate(margin + if (isRtl) 0f else indentMargin, yOffset)

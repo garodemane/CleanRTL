@@ -1190,9 +1190,14 @@ fun MarkdownPreviewPane(
                     trimmed == "---" || trimmed == "***" || trimmed == "___" -> {
                         MarkdownDivider()
                     }
-                    trimmed.startsWith("> ") || trimmed.startsWith(">") -> {
-                        val blockquoteText = if (trimmed.startsWith("> ")) trimmed.substring(2) else trimmed.substring(1)
-                        MarkdownBlockquote(text = bidiPrefix + blockquoteText, fontSize = (baseFontSize * 0.95).sp)
+                    trimmed.startsWith(">") -> {
+                        var quoteLevel = 0
+                        var tempStr = trimmed
+                        while (tempStr.startsWith(">")) {
+                            quoteLevel++
+                            tempStr = tempStr.substring(1).trim()
+                        }
+                        MarkdownBlockquote(text = bidiPrefix + tempStr, fontSize = (baseFontSize * 0.95).sp, level = quoteLevel)
                     }
                     else -> {
                         MarkdownParagraph(text = bidiPrefix + cleanParagraph, fontSize = baseFontSize.sp)
@@ -1337,7 +1342,7 @@ fun MarkdownNumberedListItem(
 }
 
 @Composable
-fun MarkdownBlockquote(text: String, fontSize: androidx.compose.ui.unit.TextUnit) {
+fun MarkdownBlockquote(text: String, fontSize: androidx.compose.ui.unit.TextUnit, level: Int = 1) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
     Card(
@@ -1349,12 +1354,22 @@ fun MarkdownBlockquote(text: String, fontSize: androidx.compose.ui.unit.TextUnit
     ) {
         Row(modifier = Modifier.padding(12.dp)) {
             if (!isRtl) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(4.dp)
-                        .background(MaterialTheme.colorScheme.secondary)
-                )
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    repeat(level) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(3.dp)
+                                .background(MaterialTheme.colorScheme.secondary)
+                        )
+                        if (it < level - 1) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.width(8.dp))
             }
             Text(
@@ -1370,12 +1385,22 @@ fun MarkdownBlockquote(text: String, fontSize: androidx.compose.ui.unit.TextUnit
             )
             if (isRtl) {
                 Spacer(modifier = Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(4.dp)
-                        .background(MaterialTheme.colorScheme.secondary)
-                )
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    repeat(level) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(3.dp)
+                                .background(MaterialTheme.colorScheme.secondary)
+                        )
+                        if (it < level - 1) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                    }
+                }
             }
         }
     }

@@ -31,6 +31,7 @@ object HtmlExporter {
         val mermaidLines = mutableListOf<String>()
 
         val openLists = mutableListOf<OpenList>()
+        var activeQuoteLevel = 0
         var idx = 0
         while (idx < paragraphs.size) {
             val paragraph = paragraphs[idx]
@@ -78,6 +79,10 @@ object HtmlExporter {
                 while (openLists.isNotEmpty()) {
                     val closed = openLists.removeAt(openLists.size - 1)
                     htmlContent.append("</${closed.type}>\n")
+                }
+                while (activeQuoteLevel > 0) {
+                    htmlContent.append("</blockquote>\n")
+                    activeQuoteLevel--
                 }
             }
 
@@ -280,6 +285,8 @@ object HtmlExporter {
             var listType = ""
             var listText = ""
             var isQuote = false
+            var quoteLevel = 0
+            var quoteText = ""
 
             val numberedListMatch = Regex("^(([a-zA-Z0-9]+)\\.)\\s+(.*)").matchEntire(trimmed)
 
@@ -318,62 +325,101 @@ object HtmlExporter {
                     listType = "ol"
                     listText = numberedListMatch.groupValues[3]
                 }
-                trimmed.startsWith("> ") || trimmed.startsWith(">") -> {
-                    tag = "blockquote"
-                    displayText = if (trimmed.startsWith("> ")) trimmed.substring(2) else trimmed.substring(1)
+                trimmed.startsWith(">") -> {
                     isQuote = true
+                    var qL = 0
+                    var tempStr = trimmed
+                    while (tempStr.startsWith(">")) {
+                        qL++
+                        tempStr = tempStr.substring(1).trim()
+                    }
+                    quoteLevel = qL
+                    quoteText = tempStr
                 }
             }
 
-            if (isList) {
-                val formattedText = formatHtmlInlineStyles(listText)
-                val isRtl = TextRepairProcessor.isParagraphRtl(formattedText)
-                val dir = if (isRtl) "rtl" else "ltr"
-                val dirAttr = "dir='$dir' class='$dir'"
-
-                // 1. Close deeper levels if targetLevel is less than current stack height - 1
-                while (openLists.size - 1 > listLevel) {
-                    val closed = openLists.removeAt(openLists.size - 1)
-                    htmlContent.append("</${closed.type}>\n")
-                }
-
-                // 2. If stack is not empty and level matches, but type or direction is different, close and reopen
-                if (openLists.isNotEmpty() && openLists.size - 1 == listLevel) {
-                    val currentTop = openLists.last()
-                    if (currentTop.type != listType || currentTop.dir != dir) {
-                        val closed = openLists.removeAt(openLists.size - 1)
-                        htmlContent.append("</${closed.type}>\n")
-                    }
-                }
-
-                // 3. Open intermediate levels up to listLevel
-                while (openLists.size - 1 < listLevel) {
-                    val nextLevel = openLists.size
-                    htmlContent.append("<$listType $dirAttr>\n")
-                    openLists.add(OpenList(listType, nextLevel, dir))
-                }
-
-                htmlContent.append("<li>$formattedText</li>\n")
-            } else {
-                // Close all open lists
+            if (isQuote) {
+                // If transitioning to blockquote, close open lists first
                 while (openLists.isNotEmpty()) {
                     val closed = openLists.removeAt(openLists.size - 1)
                     htmlContent.append("</${closed.type}>\n")
                 }
 
-                val formattedText = formatHtmlInlineStyles(displayText)
+                val formattedText = formatHtmlInlineStyles(quoteText)
                 val isRtl = TextRepairProcessor.isParagraphRtl(formattedText)
                 val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
 
-                htmlContent.append("<$tag $dirAttr>$formattedText</$tag>\n")
+                while (activeQuoteLevel < quoteLevel) {
+                    htmlContent.append("<blockquote $dirAttr>\n")
+                    activeQuoteLevel++
+                }
+                while (activeQuoteLevel > quoteLevel) {
+                    htmlContent.append("</blockquote>\n")
+                    activeQuoteLevel--
+                }
+
+                htmlContent.append("<p $dirAttr>$formattedText</p>\n")
+            } else {
+                // If not a blockquote, close all open blockquotes
+                while (activeQuoteLevel > 0) {
+                    htmlContent.append("</blockquote>\n")
+                    activeQuoteLevel--
+                }
+
+                if (isList) {
+                    val formattedText = formatHtmlInlineStyles(listText)
+                    val isRtl = TextRepairProcessor.isParagraphRtl(formattedText)
+                    val dir = if (isRtl) "rtl" else "ltr"
+                    val dirAttr = "dir='$dir' class='$dir'"
+
+                    // 1. Close deeper levels if targetLevel is less than current stack height - 1
+                    while (openLists.size - 1 > listLevel) {
+                        val closed = openLists.removeAt(openLists.size - 1)
+                        htmlContent.append("</${closed.type}>\n")
+                    }
+
+                    // 2. If stack is not empty and level matches, but type or direction is different, close and reopen
+                    if (openLists.isNotEmpty() && openLists.size - 1 == listLevel) {
+                        val currentTop = openLists.last()
+                        if (currentTop.type != listType || currentTop.dir != dir) {
+                            val closed = openLists.removeAt(openLists.size - 1)
+                            htmlContent.append("</${closed.type}>\n")
+                        }
+                    }
+
+                    // 3. Open intermediate levels up to listLevel
+                    while (openLists.size - 1 < listLevel) {
+                        val nextLevel = openLists.size
+                        htmlContent.append("<$listType $dirAttr>\n")
+                        openLists.add(OpenList(listType, nextLevel, dir))
+                    }
+
+                    htmlContent.append("<li>$formattedText</li>\n")
+                } else {
+                    // Close all open lists
+                    while (openLists.isNotEmpty()) {
+                        val closed = openLists.removeAt(openLists.size - 1)
+                        htmlContent.append("</${closed.type}>\n")
+                    }
+
+                    val formattedText = formatHtmlInlineStyles(displayText)
+                    val isRtl = TextRepairProcessor.isParagraphRtl(formattedText)
+                    val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+
+                    htmlContent.append("<$tag $dirAttr>$formattedText</$tag>\n")
+                }
             }
             idx++
         }
 
-        // Close any remaining open lists after document loop
+        // Close any remaining open lists and blockquotes after document loop
         while (openLists.isNotEmpty()) {
             val closed = openLists.removeAt(openLists.size - 1)
             htmlContent.append("</${closed.type}>\n")
+        }
+        while (activeQuoteLevel > 0) {
+            htmlContent.append("</blockquote>\n")
+            activeQuoteLevel--
         }
 
         // Final code block fallback
@@ -592,8 +638,24 @@ object HtmlExporter {
                         border-radius: 4px;
                     }
 
+                    blockquote blockquote {
+                        margin-top: 10px;
+                        margin-bottom: 10px;
+                        margin-right: 15px;
+                        margin-left: 0;
+                        background-color: rgba(0, 0, 0, 0.05);
+                        border-right: 3px solid var(--accent-color);
+                    }
+
                     blockquote.ltr {
                         border-left: 4px solid var(--accent-color);
+                        border-right: none;
+                    }
+
+                    blockquote.ltr blockquote {
+                        margin-left: 15px;
+                        margin-right: 0;
+                        border-left: 3px solid var(--accent-color);
                         border-right: none;
                     }
 
