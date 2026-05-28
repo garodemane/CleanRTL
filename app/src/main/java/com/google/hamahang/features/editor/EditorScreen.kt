@@ -1360,7 +1360,6 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
     }
     
     var renderState by remember(cleanFormula) { mutableStateOf<MathRenderState>(MathRenderState.Loading) }
-    val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
     
     // Fallback CDN loading + Native fallback if KaTeX CDN fails or is offline
     val htmlContent = remember(cleanFormula, textHtmlColor) {
@@ -1417,14 +1416,10 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
                             displayMode: true,
                             throwOnError: false
                         });
-                        if (window.AndroidInterface) {
-                            window.AndroidInterface.onSuccess();
-                        }
+                        console.log("MATH_RENDER_SUCCESS");
                     } catch (e) {
                         document.getElementById('math').textContent = ${JSONString(cleanFormula)};
-                        if (window.AndroidInterface) {
-                            window.AndroidInterface.onError(e.message);
-                        }
+                        console.log("MATH_RENDER_ERROR:" + e.message);
                     }
                 }
                 
@@ -1489,23 +1484,6 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
                     }
                 }
             } else {
-                val webInterface = remember {
-                    object {
-                        @android.webkit.JavascriptInterface
-                        fun onSuccess() {
-                            mainHandler.post {
-                                renderState = MathRenderState.Success
-                            }
-                        }
-                        @android.webkit.JavascriptInterface
-                        fun onError(err: String) {
-                            mainHandler.post {
-                                renderState = MathRenderState.Error(err)
-                            }
-                        }
-                    }
-                }
-                
                 AndroidView(
                     factory = { context ->
                         android.webkit.WebView(context).apply {
@@ -1515,15 +1493,26 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
                                     request: android.webkit.WebResourceRequest?,
                                     error: android.webkit.WebResourceError?
                                 ) {
-                                    mainHandler.post {
-                                        renderState = MathRenderState.Error("Network error")
-                                    }
+                                    renderState = MathRenderState.Error("Network error")
                                 }
                             }
-                            webChromeClient = object : android.webkit.WebChromeClient() {}
+                            webChromeClient = object : android.webkit.WebChromeClient() {
+                                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                                    val msg = consoleMessage?.message() ?: ""
+                                    when {
+                                        msg == "MATH_RENDER_SUCCESS" -> {
+                                            renderState = MathRenderState.Success
+                                        }
+                                        msg.startsWith("MATH_RENDER_ERROR:") -> {
+                                            val err = msg.removePrefix("MATH_RENDER_ERROR:")
+                                            renderState = MathRenderState.Error(err)
+                                        }
+                                    }
+                                    return true
+                                }
+                            }
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
-                            addJavascriptInterface(webInterface, "AndroidInterface")
                             setBackgroundColor(android.graphics.Color.TRANSPARENT)
                         }
                     },
@@ -1552,7 +1541,6 @@ fun ComposeMermaidBlock(code: String) {
     }
 
     var renderState by remember(cleanCode) { mutableStateOf<MathRenderState>(MathRenderState.Loading) }
-    val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
 
     val htmlContent = remember(cleanCode, mermaidTheme) {
         """
@@ -1586,13 +1574,9 @@ fun ComposeMermaidBlock(code: String) {
                             theme: '$mermaidTheme',
                             securityLevel: 'loose'
                         });
-                        if (window.AndroidInterface) {
-                            window.AndroidInterface.onSuccess();
-                        }
+                        console.log("MERMAID_RENDER_SUCCESS");
                     } catch (e) {
-                        if (window.AndroidInterface) {
-                            window.AndroidInterface.onError(e.message);
-                        }
+                        console.log("MERMAID_RENDER_ERROR:" + e.message);
                     }
                 }
                 
@@ -1691,23 +1675,6 @@ fun ComposeMermaidBlock(code: String) {
                     }
                 }
             } else {
-                val webInterface = remember {
-                    object {
-                        @android.webkit.JavascriptInterface
-                        fun onSuccess() {
-                            mainHandler.post {
-                                renderState = MathRenderState.Success
-                            }
-                        }
-                        @android.webkit.JavascriptInterface
-                        fun onError(err: String) {
-                            mainHandler.post {
-                                renderState = MathRenderState.Error(err)
-                            }
-                        }
-                    }
-                }
-                
                 AndroidView(
                     factory = { context ->
                         android.webkit.WebView(context).apply {
@@ -1717,15 +1684,26 @@ fun ComposeMermaidBlock(code: String) {
                                     request: android.webkit.WebResourceRequest?,
                                     error: android.webkit.WebResourceError?
                                 ) {
-                                    mainHandler.post {
-                                        renderState = MathRenderState.Error("Network error")
-                                    }
+                                    renderState = MathRenderState.Error("Network error")
                                 }
                             }
-                            webChromeClient = object : android.webkit.WebChromeClient() {}
+                            webChromeClient = object : android.webkit.WebChromeClient() {
+                                override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                                    val msg = consoleMessage?.message() ?: ""
+                                    when {
+                                        msg == "MERMAID_RENDER_SUCCESS" -> {
+                                            renderState = MathRenderState.Success
+                                        }
+                                        msg.startsWith("MERMAID_RENDER_ERROR:") -> {
+                                            val err = msg.removePrefix("MERMAID_RENDER_ERROR:")
+                                            renderState = MathRenderState.Error(err)
+                                        }
+                                    }
+                                    return true
+                                }
+                            }
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
-                            addJavascriptInterface(webInterface, "AndroidInterface")
                             setBackgroundColor(android.graphics.Color.TRANSPARENT)
                         }
                     },
