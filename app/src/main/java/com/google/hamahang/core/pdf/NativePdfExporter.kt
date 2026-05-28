@@ -228,6 +228,25 @@ object NativePdfExporter {
             }
             val cleanParagraph = if (bidiPrefix.isNotEmpty()) paragraph.substring(1) else paragraph
             val trimmedClean = cleanParagraph.trim()
+            
+            val bidiChars = setOf(
+                '\u200E', '\u200F', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
+                '\u2066', '\u2067', '\u2068', '\u2069', '\u200C', '\u200D'
+            )
+            var indentCount = 0
+            for (char in cleanParagraph) {
+                if (char == ' ') {
+                    indentCount++
+                } else if (char == '\t') {
+                    indentCount += 4
+                } else if (char in bidiChars) {
+                    continue
+                } else {
+                    break
+                }
+            }
+            val listLevel = indentCount / 2
+
 
             // Check if this line starts a table (and not inside code block)
             if (trimmedClean.startsWith("|") && trimmedClean.endsWith("|")) {
@@ -368,9 +387,23 @@ object NativePdfExporter {
                 displayText = trimmed.substring(7)
                 isHeader = true
             }
+            val numberedListMatch = Regex("^(([a-zA-Z0-9]+)\\.)\\s+(.*)").matchEntire(trimmed)
+
             // 3. Bullet Lists (- or * or •)
-            else if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {
-                displayText = "•  " + trimmed.substring(2)
+            if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {
+                val bullet = when (listLevel % 3) {
+                    1 -> "◦  "
+                    2 -> "▪  "
+                    else -> "•  "
+                }
+                displayText = bullet + trimmed.substring(2)
+                isList = true
+            }
+            // 3b. Numbered/Alphabetical Lists
+            else if (numberedListMatch != null) {
+                val number = numberedListMatch.groupValues[1]
+                val content = numberedListMatch.groupValues[3]
+                displayText = "$number  $content"
                 isList = true
             }
             // 4. Blockquotes (>)
@@ -401,7 +434,8 @@ object NativePdfExporter {
             val alignment = Layout.Alignment.ALIGN_NORMAL
             val directionHeuristic = if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
 
-            val indentMargin = if (isList) 20f else 0f
+            val listIndent = listLevel * 16f
+            val indentMargin = if (isList) listIndent + 16f else listIndent
             val layoutWidth = (printableWidth - indentMargin).toInt()
 
             val textLayout = StaticLayout.Builder.obtain(

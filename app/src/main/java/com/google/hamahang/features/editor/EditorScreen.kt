@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -1051,6 +1052,25 @@ fun MarkdownPreviewPane(
                 }
                 val cleanParagraph = if (bidiPrefix.isNotEmpty()) paragraph.substring(1) else paragraph
                 val trimmed = cleanParagraph.trim()
+                
+                val bidiChars = setOf(
+                    '\u200E', '\u200F', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
+                    '\u2066', '\u2067', '\u2068', '\u2069', '\u200C', '\u200D'
+                )
+                var indentCount = 0
+                for (char in cleanParagraph) {
+                    if (char == ' ') {
+                        indentCount++
+                    } else if (char == '\t') {
+                        indentCount += 4
+                    } else if (char in bidiChars) {
+                        continue
+                    } else {
+                        break
+                    }
+                }
+                val listLevel = indentCount / 2
+
 
                 // Robustly strip any leading/trailing bidi control characters for math block checks
                 val cleanTrimmed = trimmed
@@ -1138,7 +1158,7 @@ fun MarkdownPreviewPane(
                     continue
                 }
 
-                val numberedListMatch = Regex("^(\\d+\\.)\\s+(.*)").matchEntire(trimmed)
+                val numberedListMatch = Regex("^(([a-zA-Z0-9]+)\\.)\\s+(.*)").matchEntire(trimmed)
 
                 when {
                     trimmed.startsWith("# ") -> {
@@ -1160,12 +1180,12 @@ fun MarkdownPreviewPane(
                         MarkdownHeader(text = bidiPrefix + trimmed.substring(7), size = (baseFontSize * 0.85).sp, weight = FontWeight.Bold)
                     }
                     trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
-                        MarkdownListItem(text = bidiPrefix + trimmed.substring(2), fontSize = baseFontSize.sp)
+                        MarkdownListItem(text = bidiPrefix + trimmed.substring(2), fontSize = baseFontSize.sp, level = listLevel)
                     }
                     numberedListMatch != null -> {
                         val number = numberedListMatch.groupValues[1]
-                        val content = numberedListMatch.groupValues[2]
-                        MarkdownNumberedListItem(number = number, text = bidiPrefix + content, fontSize = baseFontSize.sp)
+                        val content = numberedListMatch.groupValues[3]
+                        MarkdownNumberedListItem(number = number, text = bidiPrefix + content, fontSize = baseFontSize.sp, level = listLevel)
                     }
                     trimmed == "---" || trimmed == "***" || trimmed == "___" -> {
                         MarkdownDivider()
@@ -1220,7 +1240,7 @@ fun MarkdownHeader(
 }
 
 @Composable
-fun MarkdownListItem(text: String, fontSize: androidx.compose.ui.unit.TextUnit) {
+fun MarkdownListItem(text: String, fontSize: androidx.compose.ui.unit.TextUnit, level: Int = 0) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
     CompositionLocalProvider(
@@ -1229,16 +1249,37 @@ fun MarkdownListItem(text: String, fontSize: androidx.compose.ui.unit.TextUnit) 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp, horizontal = 8.dp),
+                .padding(vertical = 4.dp)
+                .padding(start = (level * 20 + 8).dp),
             verticalAlignment = Alignment.Top
         ) {
-            Box(
-                modifier = Modifier
-                    .padding(top = 8.dp, start = 4.dp, end = 8.dp)
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.secondary)
-            )
+            when (level % 3) {
+                1 -> {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 8.dp, start = 4.dp, end = 8.dp)
+                            .size(6.dp)
+                            .border(1.5.dp, MaterialTheme.colorScheme.secondary, CircleShape)
+                    )
+                }
+                2 -> {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 8.dp, start = 5.dp, end = 9.dp)
+                            .size(5.dp)
+                            .background(MaterialTheme.colorScheme.secondary)
+                    )
+                }
+                else -> {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 8.dp, start = 4.dp, end = 8.dp)
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.secondary)
+                    )
+                }
+            }
             Text(
                 text = parseMarkdownInlineStyles(text, codeBgColor),
                 style = TextStyle(
@@ -1257,7 +1298,8 @@ fun MarkdownListItem(text: String, fontSize: androidx.compose.ui.unit.TextUnit) 
 fun MarkdownNumberedListItem(
     number: String,
     text: String,
-    fontSize: androidx.compose.ui.unit.TextUnit
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    level: Int = 0
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
@@ -1267,7 +1309,8 @@ fun MarkdownNumberedListItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp, horizontal = 8.dp),
+                .padding(vertical = 4.dp)
+                .padding(start = (level * 20 + 8).dp),
             verticalAlignment = Alignment.Top
         ) {
             Text(

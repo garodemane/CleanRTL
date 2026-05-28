@@ -3,6 +3,8 @@ package com.google.hamahang.core.html
 import com.google.hamahang.core.bidi.TextRepairProcessor
 import java.io.OutputStream
 
+private data class OpenList(val type: String, val level: Int, val dir: String)
+
 object HtmlExporter {
 
     /**
@@ -28,10 +30,37 @@ object HtmlExporter {
         var inMermaidBlock = false
         val mermaidLines = mutableListOf<String>()
 
+        val openLists = mutableListOf<OpenList>()
         var idx = 0
         while (idx < paragraphs.size) {
             val paragraph = paragraphs[idx]
-            val trimmed = paragraph.trim()
+            
+            val bidiPrefix = when {
+                paragraph.startsWith("\u200F") -> "\u200F"
+                paragraph.startsWith("\u200E") -> "\u200E"
+                else -> ""
+            }
+            val cleanParagraph = if (bidiPrefix.isNotEmpty()) paragraph.substring(1) else paragraph
+            val trimmed = cleanParagraph.trim()
+            val trimmedClean = trimmed
+
+            val bidiChars = setOf(
+                '\u200E', '\u200F', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
+                '\u2066', '\u2067', '\u2068', '\u2069', '\u200C', '\u200D'
+            )
+            var indentCount = 0
+            for (char in cleanParagraph) {
+                if (char == ' ') {
+                    indentCount++
+                } else if (char == '\t') {
+                    indentCount += 4
+                } else if (char in bidiChars) {
+                    continue
+                } else {
+                    break
+                }
+            }
+            val listLevel = indentCount / 2
 
             // Robustly strip any leading/trailing bidi control characters for math block checks
             val cleanTrimmed = trimmed
@@ -39,9 +68,21 @@ object HtmlExporter {
                 .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
                 .trim()
 
+            val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+
+            // Close all open lists if entering code/math/mermaid block, blank line, or table
+            val shouldCloseLists = inMermaidBlock || inMathBlock || inCodeBlock || paragraph.isBlank() ||
+                    cleanTrimmed.startsWith("$$") || cleanCodeBlockTrim.startsWith("```") ||
+                    (trimmed.startsWith("|") && trimmed.endsWith("|"))
+            if (shouldCloseLists) {
+                while (openLists.isNotEmpty()) {
+                    val closed = openLists.removeAt(openLists.size - 1)
+                    htmlContent.append("</${closed.type}>\n")
+                }
+            }
+
             if (inMermaidBlock) {
-                val cleanBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
-                if (cleanBlockTrim.startsWith("```")) {
+                if (cleanCodeBlockTrim.startsWith("```")) {
                     val mermaidCode = mermaidLines.joinToString("\n")
                         .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     htmlContent.append("<pre class='mermaid'>$mermaidCode</pre>\n")
@@ -88,8 +129,6 @@ object HtmlExporter {
                 continue
             }
 
-            // 1. Code Block parsing
-            val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
             if (cleanCodeBlockTrim.startsWith("```")) {
                 if (inCodeBlock) {
                     val rawCode = codeLines.joinToString("\n")
@@ -142,15 +181,6 @@ object HtmlExporter {
                 idx++
                 continue
             }
-
-            // Extract bidi override mark if present at the start of the paragraph
-            val bidiPrefix = when {
-                paragraph.startsWith("\u200F") -> "\u200F"
-                paragraph.startsWith("\u200E") -> "\u200E"
-                else -> ""
-            }
-            val cleanParagraph = if (bidiPrefix.isNotEmpty()) paragraph.substring(1) else paragraph
-            val trimmedClean = cleanParagraph.trim()
 
             // Check if this line starts a table (and not inside code block)
             if (trimmedClean.startsWith("|") && trimmedClean.endsWith("|")) {
@@ -243,11 +273,15 @@ object HtmlExporter {
                 continue
             }
 
-            // Determine tag type and direction
+            // Determine tag type, direction, and lists
             var tag = "p"
             var displayText = paragraph
             var isList = false
+            var listType = ""
+            var listText = ""
             var isQuote = false
+
+            val numberedListMatch = Regex("^(([a-zA-Z0-9]+)\\.)\\s+(.*)").matchEntire(trimmed)
 
             when {
                 trimmed.startsWith("# ") -> {
@@ -275,9 +309,14 @@ object HtmlExporter {
                     displayText = trimmed.substring(7)
                 }
                 trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
-                    tag = "li"
-                    displayText = trimmed.substring(2)
                     isList = true
+                    listType = "ul"
+                    listText = trimmed.substring(2)
+                }
+                numberedListMatch != null -> {
+                    isList = true
+                    listType = "ol"
+                    listText = numberedListMatch.groupValues[3]
                 }
                 trimmed.startsWith("> ") || trimmed.startsWith(">") -> {
                     tag = "blockquote"
@@ -286,18 +325,55 @@ object HtmlExporter {
                 }
             }
 
-            // Inline styles parse (bold, italic, inline code)
-            displayText = formatHtmlInlineStyles(displayText)
-
-            val isRtl = TextRepairProcessor.isParagraphRtl(displayText)
-            val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
-
             if (isList) {
-                htmlContent.append("<ul $dirAttr><li>$displayText</li></ul>\n")
+                val formattedText = formatHtmlInlineStyles(listText)
+                val isRtl = TextRepairProcessor.isParagraphRtl(formattedText)
+                val dir = if (isRtl) "rtl" else "ltr"
+                val dirAttr = "dir='$dir' class='$dir'"
+
+                // 1. Close deeper levels if targetLevel is less than current stack height - 1
+                while (openLists.size - 1 > listLevel) {
+                    val closed = openLists.removeAt(openLists.size - 1)
+                    htmlContent.append("</${closed.type}>\n")
+                }
+
+                // 2. If stack is not empty and level matches, but type or direction is different, close and reopen
+                if (openLists.isNotEmpty() && openLists.size - 1 == listLevel) {
+                    val currentTop = openLists.last()
+                    if (currentTop.type != listType || currentTop.dir != dir) {
+                        val closed = openLists.removeAt(openLists.size - 1)
+                        htmlContent.append("</${closed.type}>\n")
+                    }
+                }
+
+                // 3. Open intermediate levels up to listLevel
+                while (openLists.size - 1 < listLevel) {
+                    val nextLevel = openLists.size
+                    htmlContent.append("<$listType $dirAttr>\n")
+                    openLists.add(OpenList(listType, nextLevel, dir))
+                }
+
+                htmlContent.append("<li>$formattedText</li>\n")
             } else {
-                htmlContent.append("<$tag $dirAttr>$displayText</$tag>\n")
+                // Close all open lists
+                while (openLists.isNotEmpty()) {
+                    val closed = openLists.removeAt(openLists.size - 1)
+                    htmlContent.append("</${closed.type}>\n")
+                }
+
+                val formattedText = formatHtmlInlineStyles(displayText)
+                val isRtl = TextRepairProcessor.isParagraphRtl(formattedText)
+                val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+
+                htmlContent.append("<$tag $dirAttr>$formattedText</$tag>\n")
             }
             idx++
+        }
+
+        // Close any remaining open lists after document loop
+        while (openLists.isNotEmpty()) {
+            val closed = openLists.removeAt(openLists.size - 1)
+            htmlContent.append("</${closed.type}>\n")
         }
 
         // Final code block fallback
@@ -467,11 +543,43 @@ object HtmlExporter {
                         font-family: 'Inter', sans-serif;
                     }
 
+                    ul, ol {
+                        margin-top: 0.5em;
+                        margin-bottom: 0.5em;
+                    }
+
+                    ul.rtl, ol.rtl {
+                        padding-right: 24px;
+                        padding-left: 0;
+                    }
+
+                    ul.ltr, ol.ltr {
+                        padding-left: 24px;
+                        padding-right: 0;
+                    }
+
                     ul {
+                        list-style-type: disc;
+                    }
+
+                    ul ul {
+                        list-style-type: circle;
+                    }
+
+                    ul ul ul {
                         list-style-type: square;
-                        padding-right: 20px;
-                        padding-left: 20px;
-                        margin-bottom: 1.2em;
+                    }
+
+                    ol {
+                        list-style-type: decimal;
+                    }
+
+                    ol ol {
+                        list-style-type: lower-alpha;
+                    }
+
+                    ol ol ol {
+                        list-style-type: lower-roman;
                     }
 
                     blockquote {
