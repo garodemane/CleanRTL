@@ -1063,18 +1063,23 @@ object HtmlExporter {
             "<a href=\"$decodedUrl\" target=\"_blank\" style=\"color: var(--accent-color); text-decoration: underline;\">$text</a>"
         })
 
-        // 5. Bold: **text** or __text__
+        // 5. Bold + Italic: ***text***
+        res = res.replace(Regex("\\*\\*\\*(.*?)\\*\\*\\*"), "<strong><em>$1</em></strong>")
+
+        // 6. Bold: **text** or __text__
         res = res.replace(Regex("\\*\\*(.*?)\\*\\*"), "<strong>$1</strong>")
         res = res.replace(Regex("__(.*?)__"), "<strong>$1</strong>")
         
-        // 6. Italic: *text* or _text_
+        // 7. Italic: *text* or _text_
         res = res.replace(Regex("\\*(.*?)\\*"), "<em>$1</em>")
         res = res.replace(Regex("_(.*?)_"), "<em>$1</em>")
         
-        // 7. Strikethrough: ~~text~~
+        // 8. Strikethrough: ~~text~~
         res = res.replace(Regex("~~(.*?)~~"), "<del>$1</del>")
+
+        // 9. Underline: <ins>text</ins> — already valid HTML, passes through as-is
         
-        // 8. Inline code: `code`
+        // 10. Inline code: `code`
         res = res.replace(Regex("`(.*?)`"), { match ->
             val codeContent = match.groupValues[1]
             val decodedCode = decodeEscapesEscaped(codeContent)

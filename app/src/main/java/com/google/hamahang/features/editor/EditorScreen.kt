@@ -2374,8 +2374,8 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
         return text.replace(escapeRegex, "$1")
     }
 
-    // Match bold, italic, inline code, inline math, HTML span tags, HTML font tags, autolinks, auto-emails, kbd, reference links, line breaks
-    val regex = Regex("(?is)(\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|<kbd>.*?</kbd>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>)")
+    // Match bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font, autolinks, auto-emails, kbd, reference links, line breaks
+    val regex = Regex("(?is)(\\*\\*\\*.*?\\*\\*\\*|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|<kbd>.*?</kbd>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>)")
     val matches = regex.findAll(encodedInput)
 
     for (match in matches) {
@@ -2387,6 +2387,14 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
         val matchedTextClean = matchedText.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
         val matchedTextLower = matchedTextClean.trim().lowercase()
         when {
+            // Bold + Italic: ***text***
+            matchedTextLower.startsWith("***") && matchedTextLower.endsWith("***") -> {
+                builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic))
+                val content = matchedTextClean.substring(3, matchedTextClean.length - 3)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
+                builder.pop()
+            }
+            // Bold: **text** or __text__
             matchedTextLower.startsWith("**") && matchedTextLower.endsWith("**") -> {
                 builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
                 val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
@@ -2399,6 +2407,7 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                 builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
             }
+            // Italic: *text* or _text_
             matchedTextLower.startsWith("*") && matchedTextLower.endsWith("*") -> {
                 builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
@@ -2411,9 +2420,46 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                 builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
             }
+            // Strikethrough: ~~text~~
             matchedTextLower.startsWith("~~") && matchedTextLower.endsWith("~~") -> {
                 builder.pushStyle(SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough))
                 val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
+                builder.pop()
+            }
+            // Underline: <ins>text</ins>
+            matchedTextLower.startsWith("<ins>") && matchedTextLower.endsWith("</ins>") -> {
+                builder.pushStyle(SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
+                val content = matchedTextClean.substring(5, matchedTextClean.length - 6)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
+                builder.pop()
+            }
+            // HTML Bold: <strong>text</strong>
+            matchedTextLower.startsWith("<strong>") && matchedTextLower.endsWith("</strong>") -> {
+                builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                val content = matchedTextClean.substring(8, matchedTextClean.length - 9)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
+                builder.pop()
+            }
+            // HTML Italic: <em>text</em>
+            matchedTextLower.startsWith("<em>") && matchedTextLower.endsWith("</em>") -> {
+                builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
+                val content = matchedTextClean.substring(4, matchedTextClean.length - 5)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
+                builder.pop()
+            }
+            // Definition term: <dt>text</dt> — rendered bold
+            matchedTextLower.startsWith("<dt>") && matchedTextLower.endsWith("</dt>") -> {
+                builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                val content = matchedTextClean.substring(4, matchedTextClean.length - 5)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
+                builder.pop()
+            }
+            // Definition description: <dd>text</dd> — rendered italic with indent
+            matchedTextLower.startsWith("<dd>") && matchedTextLower.endsWith("</dd>") -> {
+                builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic, color = androidx.compose.ui.graphics.Color.Unspecified))
+                val content = matchedTextClean.substring(4, matchedTextClean.length - 5)
+                builder.append("    ") // indent
                 builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
             }
