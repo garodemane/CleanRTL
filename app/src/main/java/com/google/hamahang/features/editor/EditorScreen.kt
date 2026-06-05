@@ -1248,6 +1248,15 @@ fun MarkdownPreviewPaneContents(
             trimmed.startsWith("###### ") -> {
                 MarkdownHeader(text = bidiPrefix + trimmed.substring(7), size = (baseFontSize * 0.85).sp, weight = FontWeight.Bold, referenceMap = referenceMap)
             }
+            // Task list: - [x] / - [ ]
+            (trimmed.startsWith("- [x] ") || trimmed.startsWith("- [X] ") ||
+             trimmed.startsWith("* [x] ") || trimmed.startsWith("* [X] ")) -> {
+                MarkdownCheckboxItem(text = bidiPrefix + trimmed.substring(6), checked = true, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+            }
+            (trimmed.startsWith("- [ ] ") || trimmed.startsWith("* [ ] ")) -> {
+                MarkdownCheckboxItem(text = bidiPrefix + trimmed.substring(6), checked = false, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+            }
+            // Regular list item
             trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
                 MarkdownListItem(text = bidiPrefix + trimmed.substring(2), fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
             }
@@ -1258,6 +1267,10 @@ fun MarkdownPreviewPaneContents(
             }
             trimmed == "---" || trimmed == "***" || trimmed == "___" -> {
                 MarkdownDivider()
+            }
+            // Definition list container tags — just add spacing
+            trimmed.trim().lowercase() == "<dl>" || trimmed.trim().lowercase() == "</dl>" -> {
+                Spacer(modifier = Modifier.height(4.dp))
             }
             trimmed.startsWith(">") -> {
                 var quoteLevel = 0
@@ -1433,6 +1446,74 @@ fun MarkdownListItem(
                     textAlign = TextAlign.Start,
                     textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr,
                     color = MaterialTheme.colorScheme.onSurface
+                ),
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+fun MarkdownCheckboxItem(
+    text: String,
+    checked: Boolean,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    level: Int = 0,
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap()
+) {
+    val isRtl = TextRepairProcessor.isParagraphRtl(text)
+    val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
+    CompositionLocalProvider(
+        LocalLayoutDirection provides (if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .padding(start = (level * 20 + 8).dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .size(18.dp)
+                    .border(
+                        1.5.dp,
+                        if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        RoundedCornerShape(3.dp)
+                    )
+                    .background(
+                        if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        else androidx.compose.ui.graphics.Color.Transparent,
+                        RoundedCornerShape(3.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (checked) {
+                    Text(
+                        text = "✓",
+                        style = TextStyle(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                }
+            }
+            Text(
+                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
+                style = TextStyle(
+                    fontSize = fontSize,
+                    textAlign = TextAlign.Start,
+                    textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr,
+                    color = if (checked)
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    else
+                        MaterialTheme.colorScheme.onSurface,
+                    textDecoration = if (checked)
+                        androidx.compose.ui.text.style.TextDecoration.LineThrough
+                    else
+                        androidx.compose.ui.text.style.TextDecoration.None
                 ),
                 modifier = Modifier.weight(1f)
             )
@@ -2374,8 +2455,8 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
         return text.replace(escapeRegex, "$1")
     }
 
-    // Match bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font, autolinks, auto-emails, kbd, reference links, line breaks
-    val regex = Regex("(?is)(\\*\\*\\*.*?\\*\\*\\*|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|<kbd>.*?</kbd>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>)")
+    // Match images, bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font, autolinks (bracketed+bare), auto-emails (bracketed+bare), kbd, reference links, line breaks
+    val regex = Regex("(?is)(!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*.*?\\*\\*\\*|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>)")
     val matches = regex.findAll(encodedInput)
 
     for (match in matches) {
@@ -2387,6 +2468,22 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
         val matchedTextClean = matchedText.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
         val matchedTextLower = matchedTextClean.trim().lowercase()
         when {
+            // Inline Image: ![alt](url)
+            matchedTextLower.startsWith("![") -> {
+                val imgRegex = Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")
+                val imgMatch = imgRegex.matchEntire(matchedTextClean)
+                if (imgMatch != null) {
+                    val altText = imgMatch.groupValues[1].ifEmpty { "image" }
+                    builder.pushStyle(SpanStyle(
+                        color = Color(0xFF0E8457),
+                        fontStyle = FontStyle.Italic
+                    ))
+                    builder.append("\uD83D\uDDBC $altText")
+                    builder.pop()
+                } else {
+                    builder.append(matchedText)
+                }
+            }
             // Bold + Italic: ***text***
             matchedTextLower.startsWith("***") && matchedTextLower.endsWith("***") -> {
                 builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic))
@@ -2500,6 +2597,17 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                     builder.append(matchedText)
                 }
             }
+            // Bare URL: https://... (no angle brackets)
+            matchedTextLower.startsWith("http://") || matchedTextLower.startsWith("https://") -> {
+                val url = matchedTextClean.trimEnd('.', ',', ')', ']', ';', '\u060C', '\u061B')
+                builder.pushStyle(SpanStyle(
+                    color = Color(0xFF0E8457),
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                ))
+                builder.append(url)
+                builder.pop()
+            }
+            // Bracketed autolink: <https://...>
             matchedTextLower.startsWith("<http") && matchedTextLower.endsWith(">") -> {
                 val url = matchedTextClean.substring(1, matchedTextClean.length - 1)
                 builder.pushStyle(SpanStyle(
@@ -2509,6 +2617,7 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                 builder.append(url)
                 builder.pop()
             }
+            // Bracketed email: <email@domain.com>
             matchedTextLower.startsWith("<") && matchedTextLower.contains("@") && matchedTextLower.endsWith(">") -> {
                 val email = matchedTextClean.substring(1, matchedTextClean.length - 1)
                 builder.pushStyle(SpanStyle(
@@ -2516,6 +2625,15 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                     textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
                 ))
                 builder.append(email)
+                builder.pop()
+            }
+            // Bare email: email@domain.com (no angle brackets)
+            matchedTextLower.contains("@") && !matchedTextLower.startsWith("<") -> {
+                builder.pushStyle(SpanStyle(
+                    color = Color(0xFF0E8457),
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                ))
+                builder.append(matchedTextClean)
                 builder.pop()
             }
             matchedTextLower.startsWith("<kbd>") && matchedTextLower.endsWith("</kbd>") -> {
