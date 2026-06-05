@@ -61,7 +61,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
 import com.google.hamahang.core.mermaid.MermaidRenderer
-
+import androidx.compose.ui.platform.LocalUriHandler
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 @Composable
 fun CurveHeader(modifier: Modifier = Modifier) {
     val isDark = isSystemInDarkTheme()
@@ -1272,6 +1274,21 @@ fun MarkdownPreviewPaneContents(
             trimmed.trim().lowercase() == "<dl>" || trimmed.trim().lowercase() == "</dl>" -> {
                 Spacer(modifier = Modifier.height(4.dp))
             }
+            // Image as Link: [![alt](img_url)](link_url)
+            trimmed.matches(Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)$")) -> {
+                val match = Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)$").find(trimmed)!!
+                val alt = match.groupValues[1]
+                val imgUrl = match.groupValues[2]
+                val linkUrl = match.groupValues[3]
+                MarkdownImage(url = imgUrl, alt = alt, linkUrl = linkUrl)
+            }
+            // Image: ![alt](url)
+            trimmed.matches(Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)$")) -> {
+                val match = Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)$").find(trimmed)!!
+                val alt = match.groupValues[1]
+                val imgUrl = match.groupValues[2]
+                MarkdownImage(url = imgUrl, alt = alt, linkUrl = null)
+            }
             trimmed.startsWith(">") -> {
                 var quoteLevel = 0
                 var tempStr = trimmed
@@ -1471,32 +1488,59 @@ fun MarkdownCheckboxItem(
                 .fillMaxWidth()
                 .padding(vertical = 4.dp)
                 .padding(start = (level * 20 + 8).dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
+            // Include bullet dot
+            when (level % 3) {
+                1 -> {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 8.dp, start = 4.dp, end = 8.dp)
+                            .size(6.dp)
+                            .border(1.5.dp, MaterialTheme.colorScheme.secondary, CircleShape)
+                    )
+                }
+                2 -> {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 8.dp, start = 5.dp, end = 9.dp)
+                            .size(5.dp)
+                            .background(MaterialTheme.colorScheme.secondary)
+                    )
+                }
+                else -> {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 8.dp, start = 4.dp, end = 8.dp)
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.secondary)
+                    )
+                }
+            }
+
             Box(
                 modifier = Modifier
-                    .padding(end = 8.dp)
+                    .padding(end = 8.dp, top = 2.dp)
                     .size(18.dp)
                     .border(
                         1.5.dp,
-                        if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        if (checked) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline,
                         RoundedCornerShape(3.dp)
                     )
                     .background(
-                        if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        if (checked) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                         else androidx.compose.ui.graphics.Color.Transparent,
                         RoundedCornerShape(3.dp)
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 if (checked) {
-                    Text(
-                        text = "✓",
-                        style = TextStyle(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Checked",
+                        tint = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.padding(2.dp)
                     )
                 }
             }
@@ -1507,7 +1551,7 @@ fun MarkdownCheckboxItem(
                     textAlign = TextAlign.Start,
                     textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr,
                     color = if (checked)
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     else
                         MaterialTheme.colorScheme.onSurface,
                     textDecoration = if (checked)
@@ -1519,6 +1563,31 @@ fun MarkdownCheckboxItem(
             )
         }
     }
+}
+
+@Composable
+fun MarkdownImage(url: String, alt: String, linkUrl: String?) {
+    val uriHandler = LocalUriHandler.current
+    val modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 8.dp)
+        .let {
+            if (linkUrl != null) {
+                it.clickable { 
+                    try {
+                        uriHandler.openUri(linkUrl) 
+                    } catch (e: Exception) {
+                        // Ignore
+                    }
+                }
+            } else it
+        }
+    AsyncImage(
+        model = url,
+        contentDescription = alt,
+        modifier = modifier,
+        contentScale = ContentScale.Fit
+    )
 }
 
 @Composable
