@@ -1331,7 +1331,7 @@ fun MarkdownPreviewPaneContents(
             }
             fullyCleanTrimmed.startsWith(">") -> {
                 var quoteLevel = 0
-                var tempStr = trimmed
+                var tempStr = cleanTrimmed
                 while (tempStr.startsWith(">")) {
                     quoteLevel++
                     tempStr = tempStr.substring(1).trim()
@@ -1339,8 +1339,8 @@ fun MarkdownPreviewPaneContents(
                 MarkdownBlockquote(text = bidiPrefix + tempStr, fontSize = (baseFontSize * 0.95).sp, level = quoteLevel, referenceMap = referenceMap)
             }
             else -> {
-                val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
-                val resolvedText = parseMarkdownInlineStyles(bidiPrefix + cleanParagraph, codeBgColor, referenceMap)
+                val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
+                val resolvedText = parseMarkdownInlineStyles(bidiPrefix + cleanParagraph, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer)
                 val isRtl = TextRepairProcessor.isParagraphRtl(cleanParagraph)
                 
                 Text(
@@ -1421,7 +1421,7 @@ fun MarkdownDetailsBlock(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                val styledSummary = parseMarkdownInlineStyles(summaryText, MaterialTheme.colorScheme.surfaceVariant, inlineCodeTextColor = MaterialTheme.colorScheme.tertiary)
+                val styledSummary = parseMarkdownInlineStyles(summaryText, MaterialTheme.colorScheme.secondaryContainer, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer)
                 Text(
                     text = styledSummary,
                     style = MaterialTheme.typography.titleMedium,
@@ -1455,9 +1455,9 @@ fun MarkdownHeader(
     referenceMap: Map<String, Pair<String, String?>> = emptyMap()
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
-    val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
+    val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
     Text(
-        text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.tertiary),
+        text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer),
         style = TextStyle(
             fontSize = size,
             fontWeight = weight,
@@ -1479,7 +1479,7 @@ fun MarkdownListItem(
     referenceMap: Map<String, Pair<String, String?>> = emptyMap()
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
-    val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
+    val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
     CompositionLocalProvider(
         LocalLayoutDirection provides (if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr)
     ) {
@@ -1518,7 +1518,7 @@ fun MarkdownListItem(
                 }
             }
             Text(
-                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.tertiary),
+                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer),
                 style = TextStyle(
                     fontSize = fontSize,
                     textAlign = TextAlign.Start,
@@ -1540,7 +1540,7 @@ fun MarkdownCheckboxItem(
     referenceMap: Map<String, Pair<String, String?>> = emptyMap()
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
-    val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
+    val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
     CompositionLocalProvider(
         LocalLayoutDirection provides (if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr)
     ) {
@@ -1606,7 +1606,7 @@ fun MarkdownCheckboxItem(
                 }
             }
             Text(
-                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.tertiary),
+                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer),
                 style = TextStyle(
                     fontSize = fontSize,
                     textAlign = TextAlign.Start,
@@ -1660,7 +1660,7 @@ fun MarkdownNumberedListItem(
     referenceMap: Map<String, Pair<String, String?>> = emptyMap()
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
-    val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
+    val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
     CompositionLocalProvider(
         LocalLayoutDirection provides (if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr)
     ) {
@@ -1681,7 +1681,7 @@ fun MarkdownNumberedListItem(
                 modifier = Modifier.padding(end = 8.dp)
             )
             Text(
-                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
+                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer),
                 style = TextStyle(
                     fontSize = fontSize,
                     textAlign = TextAlign.Start,
@@ -1702,7 +1702,7 @@ fun MarkdownBlockquote(
     referenceMap: Map<String, Pair<String, String?>> = emptyMap()
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
-    val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
+    val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
     CompositionLocalProvider(
         LocalLayoutDirection provides (if (isRtl) LayoutDirection.Rtl else LayoutDirection.Ltr)
     ) {
@@ -1727,7 +1727,7 @@ fun MarkdownBlockquote(
             }
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
+                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer),
                 style = TextStyle(
                     fontSize = fontSize,
                     fontStyle = FontStyle.Italic,
@@ -1847,8 +1847,11 @@ sealed interface MathRenderState {
 
 @Composable
 fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUnit) {
-    val isDark = isSystemInDarkTheme()
-    val textHtmlColor = if (isDark) "#E2E4EC" else "#2D3748"
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val r = (onSurfaceVariant.red * 255).toInt()
+    val g = (onSurfaceVariant.green * 255).toInt()
+    val b = (onSurfaceVariant.blue * 255).toInt()
+    val textHtmlColor = String.format("#%02X%02X%02X", r, g, b)
     val cleanFormula = remember(formula) {
         formula.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
     }
@@ -2234,9 +2237,9 @@ fun MarkdownParagraph(
     referenceMap: Map<String, Pair<String, String?>> = emptyMap()
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
-    val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
+    val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
     Text(
-        text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
+        text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer),
         style = TextStyle(
             fontSize = fontSize,
             color = MaterialTheme.colorScheme.onSurface,
@@ -2303,8 +2306,8 @@ fun TableCell(
     baseFontSize: Int,
     modifier: Modifier = Modifier
 ) {
-    val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
-    val resolvedText = parseMarkdownInlineStyles(text, codeBgColor)
+    val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
+    val resolvedText = parseMarkdownInlineStyles(text, codeBgColor, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer)
     
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     
@@ -2638,8 +2641,8 @@ fun parseMarkdownInlineStyles(
         return text.replace(escapeRegex, "$1")
     }
 
-    // Match images, bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font/abbr, autolinks, auto-emails, footnotes, kbd, reference links, line breaks
-    val regex = Regex("(?is)(!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*.*?\\*\\*\\*|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>)")
+    // Match images, bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font/abbr, autolinks, auto-emails, footnotes, kbd, reference links, line breaks, emojis
+    val regex = Regex("(?is)(!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*.*?\\*\\*\\*|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:)")
     val matches = regex.findAll(encodedInput)
 
     for (match in matches) {
@@ -2835,18 +2838,48 @@ fun parseMarkdownInlineStyles(
                 val keyText = matchedTextClean.substring(5, matchedTextClean.length - 6)
                 builder.pushStyle(SpanStyle(
                     fontFamily = FontFamily.Monospace,
-                    background = codeBgColor.copy(alpha = 0.8f),
-                    color = inlineCodeTextColor, // Premium highlighted color
+                    background = codeBgColor,
+                    color = inlineCodeTextColor,
                     fontWeight = FontWeight.Bold
                 ))
                 builder.append(" ${decodeEscapesUnescaped(keyText)} ")
                 builder.pop()
             }
             matchedTextLower.startsWith("`") && matchedTextLower.endsWith("`") -> {
-                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBgColor, color = inlineCodeTextColor))
+                builder.pushStyle(SpanStyle(
+                    fontFamily = FontFamily.Monospace,
+                    background = codeBgColor,
+                    color = inlineCodeTextColor
+                ))
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
                 builder.append(decodeEscapesEscaped(content))
                 builder.pop()
+            }
+            matchedTextLower.startsWith(":") && matchedTextLower.endsWith(":") -> {
+                val emojiMap = mapOf(
+                    ":memo:" to "📝",
+                    ":heart:" to "❤️",
+                    ":sparkles:" to "✨",
+                    ":smile:" to "😄",
+                    ":+1:" to "👍",
+                    ":-1:" to "👎",
+                    ":tada:" to "🎉",
+                    ":rocket:" to "🚀",
+                    ":fire:" to "🔥",
+                    ":white_check_mark:" to "✅",
+                    ":x:" to "❌",
+                    ":warning:" to "⚠️",
+                    ":construction:" to "🚧",
+                    ":bug:" to "🐛",
+                    ":bulb:" to "💡",
+                    ":star:" to "⭐"
+                )
+                val emoji = emojiMap[matchedTextLower]
+                if (emoji != null) {
+                    builder.append(emoji)
+                } else {
+                    builder.append(matchedTextClean)
+                }
             }
             matchedTextLower.startsWith("$$") && matchedTextLower.endsWith("$$") -> {
                 val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
@@ -2859,7 +2892,7 @@ fun parseMarkdownInlineStyles(
             matchedTextLower.startsWith("<abbr") || matchedTextLower.contains("abbr") -> {
                 val reallyCleanText = matchedTextClean.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                 val abbrRegex = Regex("(?is)<[\\s\\u00A0]*abbr([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>")
-                val abbrMatch = abbrRegex.matchEntire(reallyCleanText)
+                val abbrMatch = abbrRegex.find(reallyCleanText)
                 if (abbrMatch != null) {
                     val innerText = abbrMatch.groupValues[2]
                     builder.pushStyle(SpanStyle(
@@ -2875,7 +2908,7 @@ fun parseMarkdownInlineStyles(
             matchedTextLower.startsWith("<font") || matchedTextLower.contains("font") -> {
                 val reallyCleanText = matchedTextClean.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                 val fontRegex = Regex("(?is)<[\\s\\u00A0]*font([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
-                val fontMatch = fontRegex.matchEntire(reallyCleanText)
+                val fontMatch = fontRegex.find(reallyCleanText)
                 if (fontMatch != null) {
                     val attrsStr = fontMatch.groupValues[1]
                     val innerText = fontMatch.groupValues[2]
@@ -2908,7 +2941,7 @@ fun parseMarkdownInlineStyles(
             matchedTextLower.startsWith("<span") || matchedTextLower.contains("span") -> {
                 val reallyCleanText = matchedTextClean.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                 val spanRegex = Regex("(?is)<[\\s\\u00A0]*span([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
-                val spanMatch = spanRegex.matchEntire(reallyCleanText)
+                val spanMatch = spanRegex.find(reallyCleanText)
                 if (spanMatch != null) {
                     val attrsStr = spanMatch.groupValues[1]
                     val innerText = spanMatch.groupValues[2]
@@ -2918,16 +2951,16 @@ fun parseMarkdownInlineStyles(
                     var fontWeight: FontWeight? = null
                     var fontStyle: FontStyle? = null
 
-                    val styleMatch = Regex("(?i)style[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
+                    val styleMatch = Regex("(?i)style[\\s\\u00A0]*=[\\s\\u00A0]*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\\u00A0>]+))").find(attrsStr)
                     if (styleMatch != null) {
-                        val rawStyle = styleMatch.groupValues[1]
-                        val styleStr = decodeEscapesUnescaped(cleanQuotes(rawStyle))
+                        val rawStyle = styleMatch.groupValues.drop(1).firstOrNull { it.isNotEmpty() } ?: ""
+                        val styleStr = decodeEscapesUnescaped(rawStyle.trim())
 
                         styleStr.split(";").forEach { stylePart ->
                             val parts = stylePart.split(":")
                             if (parts.size == 2) {
                                 val key = parts[0].replace(Regex("[\\s\\u00A0]+"), "").trim().lowercase()
-                                val value = parts[1].replace(Regex("[\\s\\u00A0]+"), " ").trim()
+                                val value = parts.drop(1).joinToString(":").replace(Regex("[\\s\\u00A0]+"), " ").trim()
                                 if (key == "color") {
                                     color = parseHtmlColor(value)
                                 } else if (key == "font-size") {
@@ -2976,18 +3009,59 @@ fun parseMarkdownInlineStyles(
 }
 
 fun parseHtmlColor(colorStr: String): Color? {
-    val clean = colorStr.trim().lowercase()
+    val clean = colorStr.trim().lowercase().replace(Regex("[\\s\\u00A0]+"), "")
     val colorMap = mapOf(
-        "red" to Color.Red,
-        "green" to Color(0xFF00FF00),
-        "blue" to Color.Blue,
-        "yellow" to Color.Yellow,
-        "black" to Color.Black,
-        "white" to Color.White,
-        "gray" to Color.Gray,
-        "grey" to Color.Gray,
-        "cyan" to Color.Cyan,
-        "magenta" to Color.Magenta
+        "red" to Color(0xFFFF0000),
+        "green" to Color(0xFF008000),
+        "lime" to Color(0xFF00FF00),
+        "blue" to Color(0xFF0000FF),
+        "yellow" to Color(0xFFFFFF00),
+        "orange" to Color(0xFFFF8C00),
+        "purple" to Color(0xFF800080),
+        "pink" to Color(0xFFFF69B4),
+        "black" to Color(0xFF000000),
+        "white" to Color(0xFFFFFFFF),
+        "gray" to Color(0xFF808080),
+        "grey" to Color(0xFF808080),
+        "cyan" to Color(0xFF00FFFF),
+        "magenta" to Color(0xFFFF00FF),
+        "brown" to Color(0xFFA52A2A),
+        "silver" to Color(0xFFC0C0C0),
+        "gold" to Color(0xFFFFD700),
+        "navy" to Color(0xFF000080),
+        "teal" to Color(0xFF008080),
+        "maroon" to Color(0xFF800000),
+        "olive" to Color(0xFF808000),
+        "aqua" to Color(0xFF00FFFF),
+        "fuchsia" to Color(0xFFFF00FF),
+        "coral" to Color(0xFFFF6347),
+        "salmon" to Color(0xFFFA8072),
+        "violet" to Color(0xFFEE82EE),
+        "indigo" to Color(0xFF4B0082),
+        "turquoise" to Color(0xFF40E0D0),
+        "crimson" to Color(0xFFDC143C),
+        "tomato" to Color(0xFFFF6347),
+        "chocolate" to Color(0xFFD2691E),
+        "forestgreen" to Color(0xFF228B22),
+        "darkorange" to Color(0xFFFF8C00),
+        "darkred" to Color(0xFF8B0000),
+        "darkblue" to Color(0xFF00008B),
+        "darkgreen" to Color(0xFF006400),
+        "deeppink" to Color(0xFFFF1493),
+        "hotpink" to Color(0xFFFF69B4),
+        "dodgerblue" to Color(0xFF1E90FF),
+        "royalblue" to Color(0xFF4169E1),
+        "steelblue" to Color(0xFF4682B4),
+        "skyblue" to Color(0xFF87CEEB),
+        "lightblue" to Color(0xFFADD8E6),
+        "lightgreen" to Color(0xFF90EE90),
+        "lightcoral" to Color(0xFFF08080),
+        "lightyellow" to Color(0xFFFFFFE0),
+        "lightsalmon" to Color(0xFFFFA07A),
+        "khaki" to Color(0xFFF0E68C),
+        "beige" to Color(0xFFF5F5DC),
+        "lavender" to Color(0xFFE6E6FA),
+        "plum" to Color(0xFFDDA0DD)
     )
     if (colorMap.containsKey(clean)) {
         return colorMap[clean]
@@ -2995,24 +3069,30 @@ fun parseHtmlColor(colorStr: String): Color? {
 
     val hex = clean.removePrefix("#")
     return try {
-        if (hex.length == 3) {
-            val r = hex[0].toString().repeat(2).toInt(16)
-            val g = hex[1].toString().repeat(2).toInt(16)
-            val b = hex[2].toString().repeat(2).toInt(16)
-            Color(red = r, green = g, blue = b)
-        } else if (hex.length == 6) {
-            val r = hex.substring(0, 2).toInt(16)
-            val g = hex.substring(2, 4).toInt(16)
-            val b = hex.substring(4, 6).toInt(16)
-            Color(red = r, green = g, blue = b)
-        } else if (hex.length == 8) {
-            val a = hex.substring(0, 2).toInt(16)
-            val r = hex.substring(2, 4).toInt(16)
-            val g = hex.substring(4, 6).toInt(16)
-            val b = hex.substring(6, 8).toInt(16)
-            Color(red = r, green = g, blue = b, alpha = a)
-        } else {
-            null
+        when (hex.length) {
+            3 -> {
+                val r = hex[0].toString().repeat(2).toInt(16)
+                val g = hex[1].toString().repeat(2).toInt(16)
+                val b = hex[2].toString().repeat(2).toInt(16)
+                val argb = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                Color(argb)
+            }
+            6 -> {
+                val r = hex.substring(0, 2).toInt(16)
+                val g = hex.substring(2, 4).toInt(16)
+                val b = hex.substring(4, 6).toInt(16)
+                val argb = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                Color(argb)
+            }
+            8 -> {
+                val a = hex.substring(0, 2).toInt(16)
+                val r = hex.substring(2, 4).toInt(16)
+                val g = hex.substring(4, 6).toInt(16)
+                val b = hex.substring(6, 8).toInt(16)
+                val argb = (a shl 24) or (r shl 16) or (g shl 8) or b
+                Color(argb)
+            }
+            else -> null
         }
     } catch (e: Exception) {
         null
