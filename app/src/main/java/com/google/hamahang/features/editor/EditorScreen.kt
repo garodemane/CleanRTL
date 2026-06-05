@@ -995,7 +995,25 @@ fun MarkdownPreviewPaneContents(
     baseFontSize: Int,
     uiFontScale: Float
 ) {
-    val rawParagraphs = text.split("\n")
+    val rawLines = text.split("\n")
+    val mergedLines = mutableListOf<String>()
+    val currentPara = StringBuilder()
+    for (line in rawLines) {
+        val noCr = line.removeSuffix("\r")
+        if (noCr.endsWith("\\")) {
+            currentPara.append(noCr.removeSuffix("\\")).append("\n")
+        } else if (noCr.endsWith("  ")) {
+            currentPara.append(noCr.removeSuffix("  ")).append("\n")
+        } else {
+            currentPara.append(noCr)
+            mergedLines.add(currentPara.toString())
+            currentPara.clear()
+        }
+    }
+    if (currentPara.isNotEmpty()) {
+        mergedLines.add(currentPara.toString())
+    }
+
     val paragraphs = mutableListOf<String>()
     val referenceMap = mutableMapOf<String, Pair<String, String?>>()
     val footnoteMap = mutableMapOf<String, String>()
@@ -1003,7 +1021,7 @@ fun MarkdownPreviewPaneContents(
     val refDefRegex = Regex("""^\s*\[([^\]]+)\]:\s*(\S+)(?:\s+["'(]([^"')]*)["'))]?)?\s*$""")
     val footnoteDefRegex = Regex("""^\s*\[\^([^\]]+)\]:\s*(.*)$""")
 
-    for (p in rawParagraphs) {
+    for (p in mergedLines) {
         val cleanP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
         val footnoteMatch = footnoteDefRegex.matchEntire(cleanP)
         val match = refDefRegex.matchEntire(cleanP)
@@ -1403,7 +1421,7 @@ fun MarkdownDetailsBlock(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                val styledSummary = parseMarkdownInlineStyles(summaryText, MaterialTheme.colorScheme.surfaceVariant)
+                val styledSummary = parseMarkdownInlineStyles(summaryText, MaterialTheme.colorScheme.surfaceVariant, inlineCodeTextColor = MaterialTheme.colorScheme.tertiary)
                 Text(
                     text = styledSummary,
                     style = MaterialTheme.typography.titleMedium,
@@ -1439,7 +1457,7 @@ fun MarkdownHeader(
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
     Text(
-        text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
+        text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.tertiary),
         style = TextStyle(
             fontSize = size,
             fontWeight = weight,
@@ -1500,7 +1518,7 @@ fun MarkdownListItem(
                 }
             }
             Text(
-                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
+                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.tertiary),
                 style = TextStyle(
                     fontSize = fontSize,
                     textAlign = TextAlign.Start,
@@ -1588,7 +1606,7 @@ fun MarkdownCheckboxItem(
                 }
             }
             Text(
-                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
+                text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.tertiary),
                 style = TextStyle(
                     fontSize = fontSize,
                     textAlign = TextAlign.Start,
@@ -2526,7 +2544,12 @@ fun renderInlineMath(content: String, codeBgColor: Color): AnnotatedString {
     return builder2.toAnnotatedString()
 }
 
-fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: Map<String, Pair<String, String?>> = emptyMap()): AnnotatedString {
+fun parseMarkdownInlineStyles(
+    input: String,
+    codeBgColor: Color,
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
+    inlineCodeTextColor: Color = Color(0xFFD81B60)
+): AnnotatedString {
 
     val escapeMap = listOf(
         "\\\\" to "\uE000",
@@ -2813,14 +2836,14 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                 builder.pushStyle(SpanStyle(
                     fontFamily = FontFamily.Monospace,
                     background = codeBgColor.copy(alpha = 0.8f),
-                    color = Color(0xFFFFA726), // Premium highlighted color
+                    color = inlineCodeTextColor, // Premium highlighted color
                     fontWeight = FontWeight.Bold
                 ))
                 builder.append(" ${decodeEscapesUnescaped(keyText)} ")
                 builder.pop()
             }
             matchedTextLower.startsWith("`") && matchedTextLower.endsWith("`") -> {
-                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBgColor))
+                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBgColor, color = inlineCodeTextColor))
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
                 builder.append(decodeEscapesEscaped(content))
                 builder.pop()
@@ -2834,23 +2857,25 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                 builder.append(renderInlineMath(content, codeBgColor))
             }
             matchedTextLower.startsWith("<abbr") || matchedTextLower.contains("abbr") -> {
+                val reallyCleanText = matchedTextClean.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                 val abbrRegex = Regex("(?is)<[\\s\\u00A0]*abbr([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>")
-                val abbrMatch = abbrRegex.matchEntire(matchedTextClean)
+                val abbrMatch = abbrRegex.matchEntire(reallyCleanText)
                 if (abbrMatch != null) {
                     val innerText = abbrMatch.groupValues[2]
                     builder.pushStyle(SpanStyle(
                         textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
                         color = Color(0xFF0E8457) // Accent green for tooltip
                     ))
-                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor, referenceMap))
+                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor, referenceMap, inlineCodeTextColor))
                     builder.pop()
                 } else {
                     builder.append(matchedText)
                 }
             }
             matchedTextLower.startsWith("<font") || matchedTextLower.contains("font") -> {
+                val reallyCleanText = matchedTextClean.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                 val fontRegex = Regex("(?is)<[\\s\\u00A0]*font([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
-                val fontMatch = fontRegex.matchEntire(matchedTextClean)
+                val fontMatch = fontRegex.matchEntire(reallyCleanText)
                 if (fontMatch != null) {
                     val attrsStr = fontMatch.groupValues[1]
                     val innerText = fontMatch.groupValues[2]
@@ -2874,15 +2899,16 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                         color = color ?: Color.Unspecified,
                         fontSize = fontSize ?: androidx.compose.ui.unit.TextUnit.Unspecified
                     ))
-                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor, referenceMap))
+                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor, referenceMap, inlineCodeTextColor))
                     builder.pop()
                 } else {
                     builder.append(matchedText)
                 }
             }
             matchedTextLower.startsWith("<span") || matchedTextLower.contains("span") -> {
+                val reallyCleanText = matchedTextClean.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                 val spanRegex = Regex("(?is)<[\\s\\u00A0]*span([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
-                val spanMatch = spanRegex.matchEntire(matchedTextClean)
+                val spanMatch = spanRegex.matchEntire(reallyCleanText)
                 if (spanMatch != null) {
                     val attrsStr = spanMatch.groupValues[1]
                     val innerText = spanMatch.groupValues[2]
@@ -2925,7 +2951,7 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                         fontWeight = fontWeight,
                         fontStyle = fontStyle
                     ))
-                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor, referenceMap))
+                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor, referenceMap, inlineCodeTextColor))
                     builder.pop()
                 } else {
                     builder.append(matchedText)
