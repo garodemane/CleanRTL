@@ -359,6 +359,20 @@ fun repairText(input: String): String {
         Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
     }
 
+    fun handlePrint() {
+        val htmlString = HtmlExporter.exportToHtmlString(correctedText, fontSizePx = fontSizeSp)
+        
+        val webView = WebView(context)
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView, url: String) {
+                val printManager = context.getSystemService(android.content.Context.PRINT_SERVICE) as android.print.PrintManager
+                val printAdapter = view.createPrintDocumentAdapter("CleanRTL Document")
+                printManager.print("CleanRTL Document", printAdapter, android.print.PrintAttributes.Builder().build())
+            }
+        }
+        webView.loadDataWithBaseURL(null, htmlString, "text/html", "UTF-8", null)
+    }
+
     fun handlePaste() {
         val clip = clipboardManager.getText()
         if (clip != null) {
@@ -373,7 +387,7 @@ fun repairText(input: String): String {
     }
 
     fun handleExportPdf() {
-        coroutineScope.launch {
+        coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 isExportingPdf = true
                 
@@ -433,9 +447,13 @@ fun repairText(input: String): String {
                     baseFontSize = fontSizeSp.toFloat(),
                     mermaidBitmaps = mermaidBitmaps
                 )
-                Toast.makeText(context, "${Loc.tr("toast_pdf_saved", currentLanguage)} (${pdfFile.name})", Toast.LENGTH_LONG).show()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(context, "${Loc.tr("toast_pdf_saved", currentLanguage)} (${pdfFile.name})", Toast.LENGTH_LONG).show()
+                }
             } catch (e: java.lang.Exception) {
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             } finally {
                 isExportingPdf = false
             }
@@ -521,19 +539,35 @@ fun repairText(input: String): String {
                     )
                     
                     if (navigationTab == 0) {
-                        IconButton(
-                            onClick = { rawText = TextFieldValue("") },
-                            colors = IconButtonDefaults.iconButtonColors(
-                                containerColor = Color.White.copy(alpha = 0.2f),
-                                contentColor = Color.White
-                            ),
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = Loc.tr("clear_desc", currentLanguage),
-                                modifier = Modifier.size(20.dp)
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            IconButton(
+                                onClick = { handlePrint() },
+                                colors = IconButtonDefaults.iconButtonColors(
+                                    containerColor = Color.White.copy(alpha = 0.2f),
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = if (currentLanguage == AppLanguage.FA) "پرینت" else "Print",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { rawText = TextFieldValue("") },
+                                colors = IconButtonDefaults.iconButtonColors(
+                                    containerColor = Color.White.copy(alpha = 0.2f),
+                                    contentColor = Color.White
+                                ),
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = Loc.tr("clear_desc", currentLanguage),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -2642,7 +2676,7 @@ fun parseMarkdownInlineStyles(
     }
 
     // Match images, bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font/abbr, autolinks, auto-emails, footnotes, kbd, reference links, line breaks, emojis
-    val regex = Regex("(?is)(!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*.*?\\*\\*\\*|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:)")
+    val regex = Regex("(?is)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*.*?\\*\\*\\*|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\$|  $)")
     val matches = regex.findAll(encodedInput)
 
     for (match in matches) {
@@ -2717,14 +2751,12 @@ fun parseMarkdownInlineStyles(
                 builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
             }
-            // HTML Bold: <strong>text</strong>
             matchedTextLower.startsWith("<strong>") && matchedTextLower.endsWith("</strong>") -> {
                 builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
                 val content = matchedTextClean.substring(8, matchedTextClean.length - 9)
                 builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
             }
-            // HTML Italic: <em>text</em>
             matchedTextLower.startsWith("<em>") && matchedTextLower.endsWith("</em>") -> {
                 builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
                 val content = matchedTextClean.substring(4, matchedTextClean.length - 5)
@@ -2991,6 +3023,9 @@ fun parseMarkdownInlineStyles(
                 }
             }
             matchedTextLower.startsWith("<br") -> {
+                builder.append("\n")
+            }
+            matchedTextLower == "  " || matchedTextLower == "\\" -> {
                 builder.append("\n")
             }
             else -> {
