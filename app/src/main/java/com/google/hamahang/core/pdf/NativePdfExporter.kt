@@ -507,8 +507,20 @@ object NativePdfExporter {
             }
             val numberedListMatch = Regex("^(([a-zA-Z0-9]+)\\.)\\s+(.*)").matchEntire(trimmed)
 
-            // 3. Bullet Lists (- or * or •)
-            if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {
+            // 3. Bullet Lists (- or * or •) — task list first
+            val cleanTrimmedForList = trimmed
+                .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
+                .trim()
+            if (cleanTrimmedForList.startsWith("- [x] ") || cleanTrimmedForList.startsWith("- [X] ") ||
+                cleanTrimmedForList.startsWith("* [x] ") || cleanTrimmedForList.startsWith("* [X] ")) {
+                val bullet = "☑  "
+                displayText = bullet + cleanTrimmedForList.substring(6)
+                isList = true
+            } else if (cleanTrimmedForList.startsWith("- [ ] ") || cleanTrimmedForList.startsWith("* [ ] ")) {
+                val bullet = "☐  "
+                displayText = bullet + cleanTrimmedForList.substring(6)
+                isList = true
+            } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {
                 val bullet = when (listLevel % 3) {
                     1 -> "◦  "
                     2 -> "▪  "
@@ -1111,8 +1123,8 @@ object NativePdfExporter {
             return clean
         }
 
-        // Match bold, italic, inline code, inline math, HTML span tags, HTML font tags, autolinks, auto-emails, kbd, reference links, line breaks
-        val regex = Regex("(?is)(\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|<kbd>.*?</kbd>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>)")
+        // Match bold, italic, inline code, inline math, HTML span tags, HTML font tags, autolinks, auto-emails, kbd, reference links, line breaks, images, emoji
+        val regex = Regex("(?is)(!\\[[^\\]]*\\]\\([^\\)]+?\\)|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|<kbd>.*?</kbd>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:)")
         val matches = regex.findAll(encodedInput)
 
         for (match in matches) {
@@ -1153,6 +1165,19 @@ object NativePdfExporter {
                     val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
                     builder.append(parseMarkdownAndHtmlToSpannable(content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
                     builder.setSpan(android.text.style.StrikethroughSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("![") && matchedTextLower.contains("](" ) -> {
+                    // Inline image: show alt text in PDF since images can't be rendered inline
+                    val imgRegex = Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")
+                    val imgMatch = imgRegex.matchEntire(matchedTextClean)
+                    if (imgMatch != null) {
+                        val altText = imgMatch.groupValues[1].ifEmpty { "image" }
+                        val start = builder.length
+                        builder.append("[🖼️ $altText]")
+                        builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    } else {
+                        builder.append(matchedText)
+                    }
                 }
                 matchedTextLower.startsWith("[") && matchedTextLower.contains("][") -> {
                     val refRegex = Regex("\\[([^\\]]+?)\\]\\[([^\\]]*?)\\]")
@@ -1292,10 +1317,12 @@ object NativePdfExporter {
                             val styleStr = cleanQuotes(rawStyle)
 
                             styleStr.split(";").forEach { stylePart ->
-                                val parts = stylePart.split(":")
-                                if (parts.size == 2) {
-                                    val key = parts[0].replace(Regex("[\\s\\u00A0]+"), "").trim().lowercase()
-                                    val value = parts[1].replace(Regex("[\\s\\u00A0]+"), " ").trim()
+                                val colonIdx = stylePart.indexOf(':')
+                                if (colonIdx > 0) {
+                                    val key = stylePart.substring(0, colonIdx)
+                                        .replace(Regex("[\\s\\u00A0]+"), "").trim().lowercase()
+                                    val value = stylePart.substring(colonIdx + 1)
+                                        .replace(Regex("[\\s\\u00A0]+"), " ").trim()
                                     if (key == "color") {
                                         color = parseHtmlColorToInt(value)
                                     } else if (key == "font-size") {
@@ -1336,6 +1363,27 @@ object NativePdfExporter {
                 matchedTextLower.startsWith("<br") -> {
                     builder.append("\n")
                 }
+                matchedTextLower.matches(Regex(":[a-zA-Z0-9_+\\-]+:")) -> {
+                    val emojiMap = mapOf(
+                        ":memo:" to "\uD83D\uDCDD",
+                        ":heart:" to "\u2764\uFE0F",
+                        ":sparkles:" to "\u2728",
+                        ":smile:" to "\uD83D\uDE04",
+                        ":-1:" to "\uD83D\uDC4E",
+                        ":+1:" to "\uD83D\uDC4D",
+                        ":tada:" to "\uD83C\uDF89",
+                        ":rocket:" to "\uD83D\uDE80",
+                        ":fire:" to "\uD83D\uDD25",
+                        ":white_check_mark:" to "\u2705",
+                        ":x:" to "\u274C",
+                        ":warning:" to "\u26A0\uFE0F",
+                        ":construction:" to "\uD83D\uDEA7",
+                        ":bug:" to "\uD83D\uDC1B",
+                        ":bulb:" to "\uD83D\uDCA1",
+                        ":star:" to "\u2B50"
+                    )
+                    builder.append(emojiMap[matchedTextLower] ?: matchedText)
+                }
                 else -> {
                     builder.append(matchedText)
                 }
@@ -1353,41 +1401,80 @@ object NativePdfExporter {
     private fun parseHtmlColorToInt(colorStr: String): Int? {
         val clean = colorStr.trim().lowercase()
         val colorMap = mapOf(
-            "red" to Color.RED,
-            "green" to Color.rgb(0, 255, 0),
-            "blue" to Color.BLUE,
-            "yellow" to Color.YELLOW,
-            "black" to Color.BLACK,
-            "white" to Color.WHITE,
-            "gray" to Color.GRAY,
-            "grey" to Color.GRAY,
-            "cyan" to Color.CYAN,
-            "magenta" to Color.MAGENTA
+            "red" to Color.rgb(255, 0, 0),
+            "green" to Color.rgb(0, 128, 0),
+            "blue" to Color.rgb(0, 0, 255),
+            "yellow" to Color.rgb(255, 255, 0),
+            "black" to Color.rgb(0, 0, 0),
+            "white" to Color.rgb(255, 255, 255),
+            "gray" to Color.rgb(128, 128, 128),
+            "grey" to Color.rgb(128, 128, 128),
+            "cyan" to Color.rgb(0, 255, 255),
+            "magenta" to Color.rgb(255, 0, 255),
+            "orange" to Color.rgb(255, 165, 0),
+            "purple" to Color.rgb(128, 0, 128),
+            "pink" to Color.rgb(255, 192, 203),
+            "brown" to Color.rgb(165, 42, 42),
+            "lime" to Color.rgb(0, 255, 0),
+            "navy" to Color.rgb(0, 0, 128),
+            "teal" to Color.rgb(0, 128, 128),
+            "maroon" to Color.rgb(128, 0, 0),
+            "olive" to Color.rgb(128, 128, 0),
+            "silver" to Color.rgb(192, 192, 192),
+            "aqua" to Color.rgb(0, 255, 255),
+            "fuchsia" to Color.rgb(255, 0, 255),
+            "coral" to Color.rgb(255, 127, 80),
+            "salmon" to Color.rgb(250, 128, 114),
+            "gold" to Color.rgb(255, 215, 0),
+            "violet" to Color.rgb(238, 130, 238),
+            "indigo" to Color.rgb(75, 0, 130),
+            "turquoise" to Color.rgb(64, 224, 208),
+            "crimson" to Color.rgb(220, 20, 60),
+            "tomato" to Color.rgb(255, 99, 71),
+            "chocolate" to Color.rgb(210, 105, 30),
+            "forestgreen" to Color.rgb(34, 139, 34),
+            "darkorange" to Color.rgb(255, 140, 0),
+            "darkred" to Color.rgb(139, 0, 0),
+            "darkblue" to Color.rgb(0, 0, 139),
+            "darkgreen" to Color.rgb(0, 100, 0),
+            "deeppink" to Color.rgb(255, 20, 147),
+            "hotpink" to Color.rgb(255, 105, 180),
+            "dodgerblue" to Color.rgb(30, 144, 255),
+            "royalblue" to Color.rgb(65, 105, 225),
+            "steelblue" to Color.rgb(70, 130, 180),
+            "skyblue" to Color.rgb(135, 206, 235),
+            "lightblue" to Color.rgb(173, 216, 230),
+            "lightgreen" to Color.rgb(144, 238, 144),
+            "lightcoral" to Color.rgb(240, 128, 128),
+            "lightyellow" to Color.rgb(255, 255, 224),
+            "lightsalmon" to Color.rgb(255, 160, 122),
+            "transparent" to Color.TRANSPARENT
         )
-        if (colorMap.containsKey(clean)) {
-            return colorMap[clean]
-        }
+        if (colorMap.containsKey(clean)) return colorMap[clean]
 
         val hex = clean.removePrefix("#")
         return try {
-            if (hex.length == 3) {
-                val r = hex[0].toString().repeat(2).toInt(16)
-                val g = hex[1].toString().repeat(2).toInt(16)
-                val b = hex[2].toString().repeat(2).toInt(16)
-                Color.rgb(r, g, b)
-            } else if (hex.length == 6) {
-                val r = hex.substring(0, 2).toInt(16)
-                val g = hex.substring(2, 4).toInt(16)
-                val b = hex.substring(4, 6).toInt(16)
-                Color.rgb(r, g, b)
-            } else if (hex.length == 8) {
-                val a = hex.substring(0, 2).toInt(16)
-                val r = hex.substring(2, 4).toInt(16)
-                val g = hex.substring(4, 6).toInt(16)
-                val b = hex.substring(6, 8).toInt(16)
-                Color.argb(a, r, g, b)
-            } else {
-                null
+            when (hex.length) {
+                3 -> {
+                    val r = hex[0].toString().repeat(2).toInt(16)
+                    val g = hex[1].toString().repeat(2).toInt(16)
+                    val b = hex[2].toString().repeat(2).toInt(16)
+                    Color.rgb(r, g, b)
+                }
+                6 -> {
+                    val r = hex.substring(0, 2).toInt(16)
+                    val g = hex.substring(2, 4).toInt(16)
+                    val b = hex.substring(4, 6).toInt(16)
+                    Color.rgb(r, g, b)
+                }
+                8 -> {
+                    val a = hex.substring(0, 2).toInt(16)
+                    val r = hex.substring(2, 4).toInt(16)
+                    val g = hex.substring(4, 6).toInt(16)
+                    val b = hex.substring(6, 8).toInt(16)
+                    Color.argb(a, r, g, b)
+                }
+                else -> null
             }
         } catch (e: Exception) {
             null

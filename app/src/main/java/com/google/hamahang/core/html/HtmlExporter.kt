@@ -376,6 +376,19 @@ object HtmlExporter {
                     tag = "h6"
                     displayText = trimmed.substring(7)
                 }
+                (cleanTrimmed.startsWith("- [x] ") || cleanTrimmed.startsWith("- [X] ") ||
+                 cleanTrimmed.startsWith("* [x] ") || cleanTrimmed.startsWith("* [X] ")) -> {
+                    isList = true
+                    listType = "ul"
+                    val content = cleanTrimmed.substring(6)
+                    listText = "<span class='task-checked'>&#9989;</span> $content"
+                }
+                (cleanTrimmed.startsWith("- [ ] ") || cleanTrimmed.startsWith("* [ ] ")) -> {
+                    isList = true
+                    listType = "ul"
+                    val content = cleanTrimmed.substring(6)
+                    listText = "<span class='task-unchecked'>&#9744;</span> $content"
+                }
                 trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
                     isList = true
                     listType = "ul"
@@ -386,10 +399,10 @@ object HtmlExporter {
                     listType = "ol"
                     listText = numberedListMatch.groupValues[3]
                 }
-                trimmed.startsWith(">") -> {
+                cleanTrimmed.startsWith(">") -> {
                     isQuote = true
                     var qL = 0
-                    var tempStr = trimmed
+                    var tempStr = cleanTrimmed
                     while (tempStr.startsWith(">")) {
                         qL++
                         tempStr = tempStr.substring(1).trim()
@@ -918,6 +931,71 @@ object HtmlExporter {
                         align-items: center;
                         overflow-x: auto;
                     }
+
+                    /* Task List Checkboxes */
+                    ul.task-list {
+                        list-style: none;
+                        padding-right: 8px;
+                        padding-left: 8px;
+                    }
+                    li .task-checked {
+                        font-size: 1em;
+                        margin-inline-end: 6px;
+                    }
+                    li .task-unchecked {
+                        font-size: 1em;
+                        margin-inline-end: 6px;
+                        color: var(--border-color);
+                    }
+
+                    /* Inline images */
+                    img.inline-img {
+                        max-width: 100%;
+                        border-radius: 8px;
+                        margin: 16px 0;
+                        display: block;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+                    }
+
+                    /* Abbreviation tooltip */
+                    abbr {
+                        text-decoration: underline dotted;
+                        cursor: help;
+                        text-decoration-color: var(--accent-color);
+                    }
+
+                    /* Footnotes */
+                    sup a {
+                        color: var(--accent-color);
+                        text-decoration: none;
+                        font-size: 0.75em;
+                        font-weight: bold;
+                    }
+                    .footnotes {
+                        border-top: 1px solid var(--border-color);
+                        margin-top: 32px;
+                        padding-top: 16px;
+                        font-size: 0.88em;
+                        color: var(--text-color);
+                        opacity: 0.8;
+                    }
+
+                    /* Improved inline code contrast */
+                    code {
+                        background-color: rgba(14, 132, 87, 0.12);
+                        color: var(--accent-color);
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                        font-family: 'JetBrains Mono', 'Fira Code', monospace;
+                        font-size: 0.9em;
+                    }
+
+                    @media (prefers-color-scheme: dark) {
+                        code {
+                            background-color: rgba(83, 217, 164, 0.15);
+                            color: #53D9A4;
+                        }
+                    }
                 </style>
             </head>
             <body>
@@ -1085,7 +1163,50 @@ object HtmlExporter {
             val decodedCode = decodeEscapesEscaped(codeContent)
             "<code>$decodedCode</code>"
         })
-        
+
+        // 11. Inline images: ![alt](url)
+        res = res.replace(Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")) { match ->
+            val alt = match.groupValues[1].ifEmpty { "image" }
+            val rawUrl = match.groupValues[2].trim()
+            val url = rawUrl.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: rawUrl
+            "<img class='inline-img' src=\"$url\" alt=\"$alt\">"
+        }
+
+        // 12. Footnote references: [^1] -> superscript link
+        res = res.replace(Regex("\\[\\^([^\\]]+)\\]")) { match ->
+            val label = match.groupValues[1]
+            "<sup><a href='#fn-$label'>[$label]</a></sup>"
+        }
+
+        // 13. Emoji shortcodes: :name:
+        val emojiMap = mapOf(
+            ":memo:" to "\uD83D\uDCDD",
+            ":heart:" to "\u2764\uFE0F",
+            ":sparkles:" to "\u2728",
+            ":smile:" to "\uD83D\uDE04",
+            ":-1:" to "\uD83D\uDC4E",
+            ":+1:" to "\uD83D\uDC4D",
+            ":tada:" to "\uD83C\uDF89",
+            ":rocket:" to "\uD83D\uDE80",
+            ":fire:" to "\uD83D\uDD25",
+            ":white_check_mark:" to "\u2705",
+            ":x:" to "\u274C",
+            ":warning:" to "\u26A0\uFE0F",
+            ":construction:" to "\uD83D\uDEA7",
+            ":bug:" to "\uD83D\uDC1B",
+            ":bulb:" to "\uD83D\uDCA1",
+            ":star:" to "\u2B50"
+        )
+        res = res.replace(Regex(":[a-zA-Z0-9_+\\-]+:")) { match ->
+            emojiMap[match.value] ?: match.value
+        }
+
+        // 14. <br> / <br/> line breaks
+        res = res.replace(Regex("(?i)<br\\s*/?"), "<br>")
+
+        // 15. Two-space line break at end of line
+        res = res.replace(Regex("  $"), "<br>")
+
         return decodeEscapesUnescaped(res)
     }
 
