@@ -1251,16 +1251,16 @@ fun MarkdownPreviewPaneContents(
                 MarkdownHeader(text = bidiPrefix + trimmed.substring(7), size = (baseFontSize * 0.85).sp, weight = FontWeight.Bold, referenceMap = referenceMap)
             }
             // Task list: - [x] / - [ ]
-            (trimmed.startsWith("- [x] ") || trimmed.startsWith("- [X] ") ||
-             trimmed.startsWith("* [x] ") || trimmed.startsWith("* [X] ")) -> {
-                MarkdownCheckboxItem(text = bidiPrefix + trimmed.substring(6), checked = true, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+            (cleanTrimmed.startsWith("- [x] ") || cleanTrimmed.startsWith("- [X] ") ||
+             cleanTrimmed.startsWith("* [x] ") || cleanTrimmed.startsWith("* [X] ")) -> {
+                MarkdownCheckboxItem(text = bidiPrefix + cleanTrimmed.substring(6), checked = true, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
             }
-            (trimmed.startsWith("- [ ] ") || trimmed.startsWith("* [ ] ")) -> {
-                MarkdownCheckboxItem(text = bidiPrefix + trimmed.substring(6), checked = false, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+            (cleanTrimmed.startsWith("- [ ] ") || cleanTrimmed.startsWith("* [ ] ")) -> {
+                MarkdownCheckboxItem(text = bidiPrefix + cleanTrimmed.substring(6), checked = false, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
             }
             // Regular list item
-            trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
-                MarkdownListItem(text = bidiPrefix + trimmed.substring(2), fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+            cleanTrimmed.startsWith("- ") || cleanTrimmed.startsWith("* ") || cleanTrimmed.startsWith("• ") -> {
+                MarkdownListItem(text = bidiPrefix + cleanTrimmed.substring(2), fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
             }
             numberedListMatch != null -> {
                 val number = numberedListMatch.groupValues[1]
@@ -1275,16 +1275,16 @@ fun MarkdownPreviewPaneContents(
                 Spacer(modifier = Modifier.height(4.dp))
             }
             // Image as Link: [![alt](img_url)](link_url)
-            trimmed.matches(Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)$")) -> {
-                val match = Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)$").find(trimmed)!!
+            cleanTrimmed.matches(Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)$")) -> {
+                val match = Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)$").find(cleanTrimmed)!!
                 val alt = match.groupValues[1]
                 val imgUrl = match.groupValues[2]
                 val linkUrl = match.groupValues[3]
                 MarkdownImage(url = imgUrl, alt = alt, linkUrl = linkUrl)
             }
             // Image: ![alt](url)
-            trimmed.matches(Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)$")) -> {
-                val match = Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)$").find(trimmed)!!
+            cleanTrimmed.matches(Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)$")) -> {
+                val match = Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)$").find(cleanTrimmed)!!
                 val alt = match.groupValues[1]
                 val imgUrl = match.groupValues[2]
                 MarkdownImage(url = imgUrl, alt = alt, linkUrl = null)
@@ -2436,7 +2436,72 @@ fun EditorPane(
     }
 }
 
+/**
+ * Converts a simple inline math expression into a styled AnnotatedString.
+ * Handles:
+ *   - ^{expr} / ^x  → superscript Unicode chars
+ *   - _{expr} / _x  → subscript Unicode chars
+ *   - \frac{a}{b}   → a/b
+ *   - \sqrt{x}      → √x
+ *   - \times        → ×, \cdot → ·, \pm → ±, \infty → ∞ etc.
+ *   - = sign + Italic+Bold for the full expression
+ */
+fun renderInlineMath(content: String, codeBgColor: Color): AnnotatedString {
+    val superMap = mapOf(
+        '0' to "⁰", '1' to "¹", '2' to "²", '3' to "³", '4' to "⁴",
+        '5' to "⁵", '6' to "⁶", '7' to "⁷", '8' to "⁸", '9' to "⁹",
+        '+' to "⁺", '-' to "⁻", '=' to "⁼", '(' to "⁽", ')' to "⁾",
+        'a' to "ᵃ", 'b' to "ᵇ", 'c' to "ᶜ", 'd' to "ᵈ", 'e' to "ᵉ",
+        'f' to "ᶠ", 'g' to "ᵍ", 'h' to "ʰ", 'i' to "ⁱ", 'j' to "ʲ",
+        'k' to "ᵏ", 'l' to "ˡ", 'm' to "ᵐ", 'n' to "ⁿ", 'o' to "ᵒ",
+        'p' to "ᵖ", 'r' to "ʳ", 's' to "ˢ", 't' to "ᵗ", 'u' to "ᵘ",
+        'v' to "ᵛ", 'w' to "ʷ", 'x' to "ˣ", 'y' to "ʸ", 'z' to "ᶻ",
+        'n' to "ⁿ"
+    )
+    val subMap = mapOf(
+        '0' to "₀", '1' to "₁", '2' to "₂", '3' to "₃", '4' to "₄",
+        '5' to "₅", '6' to "₆", '7' to "₇", '8' to "₈", '9' to "₉",
+        '+' to "₊", '-' to "₋", '=' to "₌", '(' to "₍", ')' to "₎",
+        'a' to "ₐ", 'e' to "ₑ", 'o' to "ₒ", 'i' to "ᵢ", 'u' to "ᵤ"
+    )
+
+    fun toSup(s: String) = s.map { superMap[it] ?: it.toString() }.joinToString("")
+    fun toSub(s: String) = s.map { subMap[it] ?: it.toString() }.joinToString("")
+
+    fun processTokens(expr: String): String {
+        var s = expr
+        // LaTeX commands
+        s = s.replace(Regex("\\\\frac\\{([^}]*)\\}\\{([^}]*)\\}")) { m -> "${m.groupValues[1]}/${m.groupValues[2]}" }
+        s = s.replace(Regex("\\\\sqrt\\{([^}]*)\\}")) { m -> "√${m.groupValues[1]}" }
+        s = s.replace("\\times", "×")
+        s = s.replace("\\cdot", "·")
+        s = s.replace("\\pm", "±")
+        s = s.replace("\\mp", "∓")
+        s = s.replace("\\infty", "∞")
+        s = s.replace("\\alpha", "α").replace("\\beta", "β").replace("\\gamma", "γ")
+        s = s.replace("\\delta", "δ").replace("\\pi", "π").replace("\\sigma", "σ")
+        s = s.replace("\\theta", "θ").replace("\\lambda", "λ").replace("\\mu", "μ")
+        s = s.replace("\\leq", "≤").replace("\\geq", "≥").replace("\\neq", "≠")
+        s = s.replace("\\approx", "≈")
+        // Superscript: ^{...} or ^x
+        s = s.replace(Regex("\\^\\{([^}]*)\\}")) { m -> toSup(m.groupValues[1]) }
+        s = s.replace(Regex("\\^([0-9a-zA-Z+\\-])")) { m -> toSup(m.groupValues[1]) }
+        // Subscript: _{...} or _x
+        s = s.replace(Regex("_\\{([^}]*)\\}")) { m -> toSub(m.groupValues[1]) }
+        s = s.replace(Regex("_([0-9a-zA-Z])")) { m -> toSub(m.groupValues[1]) }
+        return s
+    }
+
+    val processed = processTokens(content)
+    val builder2 = AnnotatedString.Builder()
+    builder2.pushStyle(SpanStyle(fontFamily = FontFamily.Serif, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold))
+    builder2.append(processed)
+    builder2.pop()
+    return builder2.toAnnotatedString()
+}
+
 fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: Map<String, Pair<String, String?>> = emptyMap()): AnnotatedString {
+
     val escapeMap = listOf(
         "\\\\" to "\uE000",
         "\\`"  to "\uE001",
@@ -2723,16 +2788,12 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                 builder.pop()
             }
             matchedTextLower.startsWith("$$") && matchedTextLower.endsWith("$$") -> {
-                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Serif, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold))
                 val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
-                builder.append(decodeEscapesEscaped(content))
-                builder.pop()
+                builder.append(renderInlineMath(content, codeBgColor))
             }
             matchedTextLower.startsWith("$") && matchedTextLower.endsWith("$") -> {
-                builder.pushStyle(SpanStyle(fontFamily = FontFamily.Serif, fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold))
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
-                builder.append(decodeEscapesEscaped(content))
-                builder.pop()
+                builder.append(renderInlineMath(content, codeBgColor))
             }
             matchedTextLower.startsWith("<font") || matchedTextLower.contains("font") -> {
                 val fontRegex = Regex("(?is)<[\\s\\u00A0]*font([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
