@@ -1137,10 +1137,13 @@ fun MarkdownPreviewPaneContents(
         val listLevel = indentCount / 2
 
         // Robustly strip any leading/trailing bidi control characters for math block checks
+        val bidiRegex = Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069\\u200C\\u200D\\uFEFF]+")
         val cleanTrimmed = trimmed
             .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
             .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
             .trim()
+        // Strip ALL bidi chars from everywhere — use for pattern matching only, not for displayed text
+        val fullyCleanTrimmed = trimmed.replace(bidiRegex, "").trim()
 
         val cleanTrimmedLower = cleanTrimmed.lowercase()
         if (cleanTrimmedLower.startsWith("<details")) {
@@ -1251,45 +1254,56 @@ fun MarkdownPreviewPaneContents(
                 MarkdownHeader(text = bidiPrefix + trimmed.substring(7), size = (baseFontSize * 0.85).sp, weight = FontWeight.Bold, referenceMap = referenceMap)
             }
             // Task list: - [x] / - [ ]
-            (cleanTrimmed.startsWith("- [x] ") || cleanTrimmed.startsWith("- [X] ") ||
-             cleanTrimmed.startsWith("* [x] ") || cleanTrimmed.startsWith("* [X] ")) -> {
-                MarkdownCheckboxItem(text = bidiPrefix + cleanTrimmed.substring(6), checked = true, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+            (fullyCleanTrimmed.startsWith("- [x] ") || fullyCleanTrimmed.startsWith("- [X] ") ||
+             fullyCleanTrimmed.startsWith("* [x] ") || fullyCleanTrimmed.startsWith("* [X] ")) -> {
+                MarkdownCheckboxItem(text = bidiPrefix + fullyCleanTrimmed.substring(6), checked = true, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
             }
-            (cleanTrimmed.startsWith("- [ ] ") || cleanTrimmed.startsWith("* [ ] ")) -> {
-                MarkdownCheckboxItem(text = bidiPrefix + cleanTrimmed.substring(6), checked = false, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+            (fullyCleanTrimmed.startsWith("- [ ] ") || fullyCleanTrimmed.startsWith("* [ ] ")) -> {
+                MarkdownCheckboxItem(text = bidiPrefix + fullyCleanTrimmed.substring(6), checked = false, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
             }
             // Regular list item
-            cleanTrimmed.startsWith("- ") || cleanTrimmed.startsWith("* ") || cleanTrimmed.startsWith("• ") -> {
-                MarkdownListItem(text = bidiPrefix + cleanTrimmed.substring(2), fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+            fullyCleanTrimmed.startsWith("- ") || fullyCleanTrimmed.startsWith("* ") || fullyCleanTrimmed.startsWith("• ") -> {
+                MarkdownListItem(text = bidiPrefix + fullyCleanTrimmed.substring(2), fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
             }
             numberedListMatch != null -> {
                 val number = numberedListMatch.groupValues[1]
                 val content = numberedListMatch.groupValues[3]
                 MarkdownNumberedListItem(number = number, text = bidiPrefix + content, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
             }
-            trimmed == "---" || trimmed == "***" || trimmed == "___" -> {
+            fullyCleanTrimmed == "---" || fullyCleanTrimmed == "***" || fullyCleanTrimmed == "___" -> {
                 MarkdownDivider()
             }
             // Definition list container tags — just add spacing
-            trimmed.trim().lowercase() == "<dl>" || trimmed.trim().lowercase() == "</dl>" -> {
+            fullyCleanTrimmed.lowercase() == "<dl>" || fullyCleanTrimmed.lowercase() == "</dl>" -> {
                 Spacer(modifier = Modifier.height(4.dp))
             }
             // Image as Link: [![alt](img_url)](link_url)
-            cleanTrimmed.matches(Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)$")) -> {
-                val match = Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)$").find(cleanTrimmed)!!
+            fullyCleanTrimmed.matches(Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+)\\)\\]\\(([^\\)]+)\\)$")) -> {
+                val match = Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+)\\)\\]\\(([^\\)]+)\\)$").find(fullyCleanTrimmed)!!
                 val alt = match.groupValues[1]
-                val imgUrl = match.groupValues[2]
-                val linkUrl = match.groupValues[3]
+                val imgUrl = match.groupValues[2].trim()
+                val linkUrl = match.groupValues[3].trim()
                 MarkdownImage(url = imgUrl, alt = alt, linkUrl = linkUrl)
             }
+            // Image with title or plain image (catch-all for ![alt](url...) lines)
+            fullyCleanTrimmed.startsWith("![") && fullyCleanTrimmed.contains("](") && fullyCleanTrimmed.endsWith(")") && !fullyCleanTrimmed.startsWith("[![") -> {
+                // Extract URL: everything after ]( up to first whitespace or )
+                val innerStart = fullyCleanTrimmed.indexOf("](") + 2
+                val innerContent = fullyCleanTrimmed.substring(innerStart, fullyCleanTrimmed.length - 1)
+                val imgUrl = innerContent.split(Regex("\\s+")).firstOrNull()?.trim() ?: ""
+                val altStart = 2
+                val altEnd = fullyCleanTrimmed.indexOf("](") 
+                val alt = if (altEnd > altStart) fullyCleanTrimmed.substring(altStart, altEnd) else ""
+                if (imgUrl.isNotEmpty()) MarkdownImage(url = imgUrl, alt = alt, linkUrl = null)
+            }
             // Image: ![alt](url)
-            cleanTrimmed.matches(Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)$")) -> {
-                val match = Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)$").find(cleanTrimmed)!!
+            fullyCleanTrimmed.matches(Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+)\\)$")) -> {
+                val match = Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+)\\)$").find(fullyCleanTrimmed)!!
                 val alt = match.groupValues[1]
-                val imgUrl = match.groupValues[2]
+                val imgUrl = match.groupValues[2].trim()
                 MarkdownImage(url = imgUrl, alt = alt, linkUrl = null)
             }
-            trimmed.startsWith(">") -> {
+            fullyCleanTrimmed.startsWith(">") -> {
                 var quoteLevel = 0
                 var tempStr = trimmed
                 while (tempStr.startsWith(">")) {
