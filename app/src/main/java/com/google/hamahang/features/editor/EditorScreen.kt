@@ -1808,7 +1808,7 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
     
     var renderState by remember(cleanFormula) { mutableStateOf<MathRenderState>(MathRenderState.Loading) }
     
-    // Fallback CDN loading + Native fallback if KaTeX CDN fails or is offline
+    // Load KaTeX locally from the assets folder to avoid CDN timeouts
     val htmlContent = remember(cleanFormula, textHtmlColor) {
         """
         <!DOCTYPE html>
@@ -1816,23 +1816,9 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <!-- Fallback-enabled CDN loading -->
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css';">
-            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js" onload="tryRender()" onerror="loadFallbackKatex()"></script>
-            <script>
-                function loadFallbackKatex() {
-                    var script = document.createElement('script');
-                    script.src = "https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.js";
-                    script.onload = tryRender;
-                    script.onerror = function() {
-                        var script2 = document.createElement('script');
-                        script2.src = "https://unpkg.com/katex@0.16.8/dist/katex.min.js";
-                        script2.onload = tryRender;
-                        document.head.appendChild(script2);
-                    };
-                    document.head.appendChild(script);
-                }
-            </script>
+            <!-- Local KaTeX Loading -->
+            <link rel="stylesheet" href="file:///android_asset/katex/katex.min.css">
+            <script src="file:///android_asset/katex/katex.min.js"></script>
             <style>
                 body {
                     background-color: transparent;
@@ -1857,13 +1843,10 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
             <div id="math"></div>
             <script>
                 function tryRender() {
-                    if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', tryRender);
-                        return;
-                    }
                     try {
                         if (typeof katex === 'undefined') {
-                            throw new Error("KaTeX not loaded");
+                            setTimeout(tryRender, 50);
+                            return;
                         }
                         var target = document.getElementById('math');
                         if (!target) {
@@ -1884,25 +1867,19 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
                     }
                 }
                 
-                // Wait for KaTeX script to load if it hasn't yet, then render
-                if (typeof katex !== 'undefined') {
-                    tryRender();
-                } else {
-                    window.addEventListener('load', function() {
-                        setTimeout(tryRender, 100);
-                    });
-                }
+                // Start rendering immediately, tryRender will wait for KaTeX to load
+                tryRender();
             </script>
         </body>
         </html>
     """.trimIndent()
     }
 
-    // Safety timeout: if rendering doesn't succeed in 8.0 seconds, automatically show the beautiful native fallback
+    // Safety timeout: if rendering doesn't succeed in 4.0 seconds, fallback
     LaunchedEffect(cleanFormula) {
-        kotlinx.coroutines.delay(8000)
+        kotlinx.coroutines.delay(4000)
         if (renderState == MathRenderState.Loading) {
-            renderState = MathRenderState.Error("Timeout loading KaTeX CDN")
+            renderState = MathRenderState.Error("Timeout loading KaTeX")
         }
     }
 
@@ -1962,7 +1939,9 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
                                     request: android.webkit.WebResourceRequest?,
                                     error: android.webkit.WebResourceError?
                                 ) {
-                                    renderState = MathRenderState.Error("Network error")
+                                    if (request?.isForMainFrame == true) {
+                                        renderState = MathRenderState.Error("WebView network error")
+                                    }
                                 }
                             }
                             webChromeClient = object : android.webkit.WebChromeClient() {
@@ -1989,7 +1968,7 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
                         val lastLoaded = webView.tag as? String
                         if (lastLoaded != htmlContent) {
                             webView.tag = htmlContent
-                            webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
+                            webView.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null)
                         }
                     },
                     modifier = Modifier.fillMaxSize()
