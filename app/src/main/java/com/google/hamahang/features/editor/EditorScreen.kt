@@ -998,13 +998,21 @@ fun MarkdownPreviewPaneContents(
     val rawParagraphs = text.split("\n")
     val paragraphs = mutableListOf<String>()
     val referenceMap = mutableMapOf<String, Pair<String, String?>>()
+    val footnoteMap = mutableMapOf<String, String>()
 
     val refDefRegex = Regex("""^\s*\[([^\]]+)\]:\s*(\S+)(?:\s+["'(]([^"')]*)["'))]?)?\s*$""")
+    val footnoteDefRegex = Regex("""^\s*\[\^([^\]]+)\]:\s*(.*)$""")
 
     for (p in rawParagraphs) {
         val cleanP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+        val footnoteMatch = footnoteDefRegex.matchEntire(cleanP)
         val match = refDefRegex.matchEntire(cleanP)
-        if (match != null) {
+        
+        if (footnoteMatch != null) {
+            val label = footnoteMatch.groupValues[1].trim()
+            val footnoteText = footnoteMatch.groupValues[2].trim()
+            footnoteMap[label] = footnoteText
+        } else if (match != null && !match.groupValues[1].startsWith("^")) {
             val label = match.groupValues[1].trim().lowercase()
             val url = match.groupValues[2].trim()
             val title = match.groupValues[3].trim().takeIf { it.isNotEmpty() }
@@ -1344,6 +1352,27 @@ fun MarkdownPreviewPaneContents(
     if (inMermaidBlock && mermaidLines.isNotEmpty()) {
         val fullMermaid = mermaidLines.joinToString("\n")
         ComposeMermaidBlock(code = fullMermaid)
+    }
+
+    if (footnoteMap.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), thickness = 1.dp)
+        Spacer(modifier = Modifier.height(8.dp))
+        footnoteMap.forEach { (label, footnoteText) ->
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Text(
+                    text = "${label.replace("\\", "")}. ",
+                    fontSize = (baseFontSize * 0.9).sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                MarkdownParagraph(
+                    text = footnoteText,
+                    fontSize = (baseFontSize * 0.9).sp,
+                    referenceMap = referenceMap
+                )
+            }
+        }
     }
 }
 
@@ -2181,11 +2210,15 @@ fun highlightCode(code: String): AnnotatedString {
 }
 
 @Composable
-fun MarkdownParagraph(text: String, fontSize: androidx.compose.ui.unit.TextUnit) {
+fun MarkdownParagraph(
+    text: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap()
+) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.surfaceVariant
     Text(
-        text = parseMarkdownInlineStyles(text, codeBgColor),
+        text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap),
         style = TextStyle(
             fontSize = fontSize,
             color = MaterialTheme.colorScheme.onSurface,
@@ -2582,8 +2615,8 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
         return text.replace(escapeRegex, "$1")
     }
 
-    // Match images, bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font, autolinks (bracketed+bare), auto-emails (bracketed+bare), kbd, reference links, line breaks
-    val regex = Regex("(?is)(!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*.*?\\*\\*\\*|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>)")
+    // Match images, bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font/abbr, autolinks, auto-emails, footnotes, kbd, reference links, line breaks
+    val regex = Regex("(?is)(!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*.*?\\*\\*\\*|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>)")
     val matches = regex.findAll(encodedInput)
 
     for (match in matches) {
@@ -2687,6 +2720,18 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                 builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
                 builder.pop()
             }
+            // Inline footnote: [^1]
+            matchedTextLower.startsWith("[^") && matchedTextLower.endsWith("]") && !matchedTextLower.contains("](") && !matchedTextLower.contains("][") -> {
+                val label = matchedTextClean.substring(2, matchedTextClean.length - 1)
+                builder.pushStyle(SpanStyle(
+                    color = Color(0xFF0E8457), // Accent green link color
+                    baselineShift = androidx.compose.ui.text.style.BaselineShift.Superscript,
+                    fontSize = 12.sp,
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                ))
+                builder.append(decodeEscapesUnescaped(label))
+                builder.pop()
+            }
             matchedTextLower.startsWith("[") && matchedTextLower.contains("][") -> {
                 val refRegex = Regex("\\[([^\\]]+?)\\]\\[([^\\]]*?)\\]")
                 val refMatch = refRegex.matchEntire(matchedTextClean)
@@ -2788,6 +2833,21 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
                 builder.append(renderInlineMath(content, codeBgColor))
             }
+            matchedTextLower.startsWith("<abbr") || matchedTextLower.contains("abbr") -> {
+                val abbrRegex = Regex("(?is)<[\\s\\u00A0]*abbr([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>")
+                val abbrMatch = abbrRegex.matchEntire(matchedTextClean)
+                if (abbrMatch != null) {
+                    val innerText = abbrMatch.groupValues[2]
+                    builder.pushStyle(SpanStyle(
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                        color = Color(0xFF0E8457) // Accent green for tooltip
+                    ))
+                    builder.append(parseMarkdownInlineStyles(innerText, codeBgColor, referenceMap))
+                    builder.pop()
+                } else {
+                    builder.append(matchedText)
+                }
+            }
             matchedTextLower.startsWith("<font") || matchedTextLower.contains("font") -> {
                 val fontRegex = Regex("(?is)<[\\s\\u00A0]*font([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
                 val fontMatch = fontRegex.matchEntire(matchedTextClean)
@@ -2800,13 +2860,13 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
 
                     val colorMatch = Regex("(?i)color[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                     if (colorMatch != null) {
-                        val colorValue = cleanQuotes(colorMatch.groupValues[1])
+                        val colorValue = decodeEscapesUnescaped(cleanQuotes(colorMatch.groupValues[1]))
                         color = parseHtmlColor(colorValue)
                     }
 
                     val sizeMatch = Regex("(?i)size[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                     if (sizeMatch != null) {
-                        val sizeValue = cleanQuotes(sizeMatch.groupValues[1])
+                        val sizeValue = decodeEscapesUnescaped(cleanQuotes(sizeMatch.groupValues[1]))
                         fontSize = parseHtmlFontSizeAttribute(sizeValue)
                     }
 
@@ -2835,7 +2895,7 @@ fun parseMarkdownInlineStyles(input: String, codeBgColor: Color, referenceMap: M
                     val styleMatch = Regex("(?i)style[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                     if (styleMatch != null) {
                         val rawStyle = styleMatch.groupValues[1]
-                        val styleStr = cleanQuotes(rawStyle)
+                        val styleStr = decodeEscapesUnescaped(cleanQuotes(rawStyle))
 
                         styleStr.split(";").forEach { stylePart ->
                             val parts = stylePart.split(":")
