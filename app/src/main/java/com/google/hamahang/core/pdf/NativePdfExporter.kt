@@ -53,6 +53,7 @@ object NativePdfExporter {
         // TextPaint configurations
         val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
+            linkColor = Color.BLUE
             textSize = baseFontSize
             typeface = regularTypeface
         }
@@ -1004,11 +1005,13 @@ object NativePdfExporter {
         val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = baseFontSize - 1f
             color = Color.BLACK
+            linkColor = Color.BLUE
             typeface = regularTypeface
         }
         val headerTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = baseFontSize - 1f
             color = Color.rgb(14, 17, 25) // Deep Slate
+            linkColor = Color.BLUE
             typeface = boldTypeface
         }
         val borderPaint = Paint().apply {
