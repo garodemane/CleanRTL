@@ -1,4 +1,4 @@
-﻿package com.google.hamahang.core.html
+package com.google.hamahang.core.html
 
 import com.google.hamahang.core.bidi.TextRepairProcessor
 import java.io.OutputStream
@@ -14,27 +14,34 @@ object HtmlExporter {
     fun exportToHtml(
         text: String,
         outputStream: OutputStream,
-        title: String = "Ø®Ø±ÙˆØ¬ÛŒ CleanRTL (CleanRTL Web Document)",
+        title: String = "خروجی CleanRTL (CleanRTL Web Document)",
         fontSizePx: Int = 16,
         isJustified: Boolean = false
     ) {
         val rawParagraphs = text.split("\n")
         val paragraphs = mutableListOf<String>()
         val referenceMap = mutableMapOf<String, Pair<String, String?>>()
-        val footnoteMap = mutableMapOf<String, String>()
 
         val refDefRegex = Regex("""^\s*\[([^\]]+)\]:\s*(\S+)(?:\s+["'(]([^"')]*)["'))]?)?\s*$""")
+        val footnoteRegex = Regex("""^\s*\[\^([^\]]+)\]:\s*(.+)$""")
+        val footnoteMap = mutableMapOf<String, String>()
 
         for (p in rawParagraphs) {
-            val cleanP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            val bidiFreeP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            val cleanP = bidiFreeP.trim()
             val match = refDefRegex.matchEntire(cleanP)
+            val fnMatch = footnoteRegex.matchEntire(cleanP)
             if (match != null) {
                 val label = match.groupValues[1].trim().lowercase()
                 val url = match.groupValues[2].trim()
                 val titleVal = match.groupValues[3].trim().takeIf { it.isNotEmpty() }
                 referenceMap[label] = Pair(url, titleVal)
+            } else if (fnMatch != null) {
+                val id = fnMatch.groupValues[1].trim()
+                val fnText = fnMatch.groupValues[2].trim()
+                footnoteMap[id] = fnText
             } else {
-                paragraphs.add(p)
+                paragraphs.add(bidiFreeP)
             }
         }
 
@@ -173,7 +180,7 @@ object HtmlExporter {
                                     <span class="dot green"></span>
                                 </div>
                                 <span class="code-lang">$displayLang</span>
-                                <button class="copy-btn" onclick="copyCode(this)">Ú©Ù¾ÛŒ</button>
+                                <button class="copy-btn" onclick="copyCode(this)">کپی</button>
                             </div>
                             <pre><code class="language-$currentCodeLang">$codeContent</code></pre>
                         </div>
@@ -391,7 +398,7 @@ object HtmlExporter {
                     val content = TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6)
                     listText = "<span class='task-unchecked'>&#9744;</span> $content"
                 }
-                cleanCodeBlockTrim.startsWith("- ") || cleanCodeBlockTrim.startsWith("* ") || cleanCodeBlockTrim.startsWith("â€¢ ") -> {
+                cleanCodeBlockTrim.startsWith("- ") || cleanCodeBlockTrim.startsWith("* ") || cleanCodeBlockTrim.startsWith("• ") -> {
                     isList = true
                     listType = "ul"
                     listText = TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 2)
@@ -499,6 +506,18 @@ object HtmlExporter {
             activeQuoteLevel--
         }
 
+        if (footnoteMap.isNotEmpty()) {
+            htmlContent.append("<hr style='margin-top: 40px; border: 0; border-top: 1px solid var(--border-color);'>\n")
+            htmlContent.append("<div class='footnotes'>\n")
+            footnoteMap.forEach { (id, text) ->
+                val formattedText = formatHtmlInlineStyles(text, referenceMap)
+                val isRtl = TextRepairProcessor.isParagraphRtl(formattedText)
+                val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                htmlContent.append("<p id='fn-$id' $dirAttr><sup>$id</sup> $formattedText</p>\n")
+            }
+            htmlContent.append("</div>\n")
+        }
+
         // Final code block fallback
         if (inCodeBlock && codeLines.isNotEmpty()) {
             val rawCode = codeLines.joinToString("\n")
@@ -517,7 +536,7 @@ object HtmlExporter {
                             <span class="dot green"></span>
                         </div>
                         <span class="code-lang">$displayLang</span>
-                        <button class="copy-btn" onclick="copyCode(this)">Ú©Ù¾ÛŒ</button>
+                        <button class="copy-btn" onclick="copyCode(this)">کپی</button>
                     </div>
                     <pre><code class="language-$currentCodeLang">$codeContent</code></pre>
                 </div>
@@ -1011,7 +1030,7 @@ object HtmlExporter {
                         var code = pre.querySelector('code');
                         navigator.clipboard.writeText(code.innerText).then(function() {
                             var originalText = button.innerText;
-                            button.innerText = 'Ú©Ù¾ÛŒ Ø´Ø¯!';
+                            button.innerText = 'کپی شد!';
                             button.style.backgroundColor = '#0E8457';
                             setTimeout(function() {
                                 button.innerText = originalText;
@@ -1179,7 +1198,7 @@ object HtmlExporter {
         // 8. Strikethrough: ~~text~~
         res = res.replace(Regex("~~(.*?)~~"), "<del>$1</del>")
 
-        // 9. Underline: <ins>text</ins> â€” already valid HTML, passes through as-is
+        // 9. Underline: <ins>text</ins> — already valid HTML, passes through as-is
         
         // 10. Inline code: `code`
         res = res.replace(Regex("`(.*?)`"), { match ->
@@ -1226,10 +1245,13 @@ object HtmlExporter {
         }
 
         // 14. <br> / <br/> line breaks
-        res = res.replace(Regex("(?i)<br\\s*/?"), "<br>")
+        res = res.replace(Regex("(?i)<br\\s*/?>"), "<br>")
 
         // 15. Two-space line break at end of line
         res = res.replace(Regex("  $"), "<br>")
+
+        // 16. Hard line break \ at the end
+        res = res.replace(Regex("\\\\$"), "")
 
         return decodeEscapesUnescaped(res)
     }
@@ -1301,7 +1323,7 @@ object HtmlExporter {
 
     fun exportToHtmlString(
         text: String,
-        title: String = "Ø®Ø±ÙˆØ¬ÛŒ CleanRTL (CleanRTL Web Document)",
+        title: String = "خروجی CleanRTL (CleanRTL Web Document)",
         fontSizePx: Int = 16,
         isJustified: Boolean = false
     ): String {
