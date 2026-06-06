@@ -1,4 +1,4 @@
-package com.google.hamahang.core.html
+﻿package com.google.hamahang.core.html
 
 import com.google.hamahang.core.bidi.TextRepairProcessor
 import java.io.OutputStream
@@ -14,13 +14,14 @@ object HtmlExporter {
     fun exportToHtml(
         text: String,
         outputStream: OutputStream,
-        title: String = "خروجی CleanRTL (CleanRTL Web Document)",
+        title: String = "Ø®Ø±ÙˆØ¬ÛŒ CleanRTL (CleanRTL Web Document)",
         fontSizePx: Int = 16,
         isJustified: Boolean = false
     ) {
         val rawParagraphs = text.split("\n")
         val paragraphs = mutableListOf<String>()
         val referenceMap = mutableMapOf<String, Pair<String, String?>>()
+        val footnoteMap = mutableMapOf<String, String>()
 
         val refDefRegex = Regex("""^\s*\[([^\]]+)\]:\s*(\S+)(?:\s+["'(]([^"')]*)["'))]?)?\s*$""")
 
@@ -172,7 +173,7 @@ object HtmlExporter {
                                     <span class="dot green"></span>
                                 </div>
                                 <span class="code-lang">$displayLang</span>
-                                <button class="copy-btn" onclick="copyCode(this)">کپی</button>
+                                <button class="copy-btn" onclick="copyCode(this)">Ú©Ù¾ÛŒ</button>
                             </div>
                             <pre><code class="language-$currentCodeLang">$codeContent</code></pre>
                         </div>
@@ -390,7 +391,7 @@ object HtmlExporter {
                     val content = TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6)
                     listText = "<span class='task-unchecked'>&#9744;</span> $content"
                 }
-                cleanCodeBlockTrim.startsWith("- ") || cleanCodeBlockTrim.startsWith("* ") || cleanCodeBlockTrim.startsWith("• ") -> {
+                cleanCodeBlockTrim.startsWith("- ") || cleanCodeBlockTrim.startsWith("* ") || cleanCodeBlockTrim.startsWith("â€¢ ") -> {
                     isList = true
                     listType = "ul"
                     listText = TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 2)
@@ -516,7 +517,7 @@ object HtmlExporter {
                             <span class="dot green"></span>
                         </div>
                         <span class="code-lang">$displayLang</span>
-                        <button class="copy-btn" onclick="copyCode(this)">کپی</button>
+                        <button class="copy-btn" onclick="copyCode(this)">Ú©Ù¾ÛŒ</button>
                     </div>
                     <pre><code class="language-$currentCodeLang">$codeContent</code></pre>
                 </div>
@@ -1010,7 +1011,7 @@ object HtmlExporter {
                         var code = pre.querySelector('code');
                         navigator.clipboard.writeText(code.innerText).then(function() {
                             var originalText = button.innerText;
-                            button.innerText = 'کپی شد!';
+                            button.innerText = 'Ú©Ù¾ÛŒ Ø´Ø¯!';
                             button.style.backgroundColor = '#0E8457';
                             setTimeout(function() {
                                 button.innerText = originalText;
@@ -1178,7 +1179,7 @@ object HtmlExporter {
         // 8. Strikethrough: ~~text~~
         res = res.replace(Regex("~~(.*?)~~"), "<del>$1</del>")
 
-        // 9. Underline: <ins>text</ins> — already valid HTML, passes through as-is
+        // 9. Underline: <ins>text</ins> â€” already valid HTML, passes through as-is
         
         // 10. Inline code: `code`
         res = res.replace(Regex("`(.*?)`"), { match ->
@@ -1300,7 +1301,7 @@ object HtmlExporter {
 
     fun exportToHtmlString(
         text: String,
-        title: String = "خروجی CleanRTL (CleanRTL Web Document)",
+        title: String = "Ø®Ø±ÙˆØ¬ÛŒ CleanRTL (CleanRTL Web Document)",
         fontSizePx: Int = 16,
         isJustified: Boolean = false
     ): String {

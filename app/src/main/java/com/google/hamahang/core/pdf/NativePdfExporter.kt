@@ -1,4 +1,4 @@
-package com.google.hamahang.core.pdf
+﻿package com.google.hamahang.core.pdf
 
 import android.content.Context
 import android.graphics.Canvas
@@ -294,7 +294,7 @@ object NativePdfExporter {
 
                     // Render beautiful summary card header
                     val summaryHeaderSpanned = parseMarkdownAndHtmlToSpannable(context, 
-                        "▼  $summary",
+                        "â–¼  $summary",
                         baseFontSize * 1.05f,
                         boldTypeface,
                         italicTypeface,
@@ -522,22 +522,22 @@ object NativePdfExporter {
             }
             val numberedListMatch = Regex("^(([a-zA-Z0-9]+)\\.)\\s+(.*)").matchEntire(trimmed)
 
-            // 3. Bullet Lists (- or * or •) — task list first
+            // 3. Bullet Lists (- or * or â€¢) â€” task list first
             if (cleanCodeBlockTrim.startsWith("- [x] ") || cleanCodeBlockTrim.startsWith("- [X] ") ||
                 cleanCodeBlockTrim.startsWith("* [x] ") || cleanCodeBlockTrim.startsWith("* [X] ") ||
-                cleanCodeBlockTrim.startsWith("• [x] ") || cleanCodeBlockTrim.startsWith("• [X] ")) {
-                val bullet = "☑  "
+                cleanCodeBlockTrim.startsWith("â€¢ [x] ") || cleanCodeBlockTrim.startsWith("â€¢ [X] ")) {
+                val bullet = "â˜‘  "
                 displayText = bullet + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6)
                 isList = true
-            } else if (cleanCodeBlockTrim.startsWith("- [ ] ") || cleanCodeBlockTrim.startsWith("* [ ] ") || cleanCodeBlockTrim.startsWith("• [ ] ")) {
-                val bullet = "☐  "
+            } else if (cleanCodeBlockTrim.startsWith("- [ ] ") || cleanCodeBlockTrim.startsWith("* [ ] ") || cleanCodeBlockTrim.startsWith("â€¢ [ ] ")) {
+                val bullet = "â˜  "
                 displayText = bullet + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6)
                 isList = true
-            } else if (cleanCodeBlockTrim.startsWith("- ") || cleanCodeBlockTrim.startsWith("* ") || cleanCodeBlockTrim.startsWith("• ")) {
+            } else if (cleanCodeBlockTrim.startsWith("- ") || cleanCodeBlockTrim.startsWith("* ") || cleanCodeBlockTrim.startsWith("â€¢ ")) {
                 val bullet = when (listLevel % 3) {
-                    1 -> "◦  "
-                    2 -> "▪  "
-                    else -> "•  "
+                    1 -> "â—¦  "
+                    2 -> "â–ª  "
+                    else -> "â€¢  "
                 }
                 displayText = bullet + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 2)
                 isList = true
@@ -915,21 +915,21 @@ object NativePdfExporter {
 
     private fun replaceLatexWithUnicode(latex: String): String {
         val superMap = mapOf(
-            '0' to "⁰", '1' to "¹", '2' to "²", '3' to "³", '4' to "⁴",
-            '5' to "⁵", '6' to "⁶", '7' to "⁷", '8' to "⁸", '9' to "⁹",
-            '+' to "⁺", '-' to "⁻", '=' to "⁼", '(' to "⁽", ')' to "⁾",
-            'a' to "ᵃ", 'b' to "ᵇ", 'c' to "ᶜ", 'd' to "ᵈ", 'e' to "ᵉ",
-            'f' to "ᶠ", 'g' to "ᵍ", 'h' to "ʰ", 'i' to "ⁱ", 'j' to "ʲ",
-            'k' to "ᵏ", 'l' to "ˡ", 'm' to "ᵐ", 'n' to "ⁿ", 'o' to "ᵒ",
-            'p' to "ᵖ", 'r' to "ʳ", 's' to "ˢ", 't' to "ᵗ", 'u' to "ᵘ",
-            'v' to "ᵛ", 'w' to "ʷ", 'x' to "ˣ", 'y' to "ʸ", 'z' to "ᶻ"
+            '0' to "â°", '1' to "Â¹", '2' to "Â²", '3' to "Â³", '4' to "â´",
+            '5' to "âµ", '6' to "â¶", '7' to "â·", '8' to "â¸", '9' to "â¹",
+            '+' to "âº", '-' to "â»", '=' to "â¼", '(' to "â½", ')' to "â¾",
+            'a' to "áµƒ", 'b' to "áµ‡", 'c' to "á¶œ", 'd' to "áµˆ", 'e' to "áµ‰",
+            'f' to "á¶ ", 'g' to "áµ", 'h' to "Ê°", 'i' to "â±", 'j' to "Ê²",
+            'k' to "áµ", 'l' to "Ë¡", 'm' to "áµ", 'n' to "â¿", 'o' to "áµ’",
+            'p' to "áµ–", 'r' to "Ê³", 's' to "Ë¢", 't' to "áµ—", 'u' to "áµ˜",
+            'v' to "áµ›", 'w' to "Ê·", 'x' to "Ë£", 'y' to "Ê¸", 'z' to "á¶»"
         )
         val subMap = mapOf(
-            '0' to "₀", '1' to "₁", '2' to "₂", '3' to "₃", '4' to "₄",
-            '5' to "₅", '6' to "₆", '7' to "₇", '8' to "₈", '9' to "₉",
-            '+' to "₊", '-' to "₋", '=' to "₌", '(' to "₍", ')' to "₎",
-            'a' to "ₐ", 'e' to "ₑ", 'o' to "ₒ", 'i' to "ᵢ", 'u' to "ᵤ",
-            'x' to "ₓ", 'r' to "ᵣ", 'v' to "ᵥ", 'j' to "ⱼ"
+            '0' to "â‚€", '1' to "â‚", '2' to "â‚‚", '3' to "â‚ƒ", '4' to "â‚„",
+            '5' to "â‚…", '6' to "â‚†", '7' to "â‚‡", '8' to "â‚ˆ", '9' to "â‚‰",
+            '+' to "â‚Š", '-' to "â‚‹", '=' to "â‚Œ", '(' to "â‚", ')' to "â‚Ž",
+            'a' to "â‚", 'e' to "â‚‘", 'o' to "â‚’", 'i' to "áµ¢", 'u' to "áµ¤",
+            'x' to "â‚“", 'r' to "áµ£", 'v' to "áµ¥", 'j' to "â±¼"
         )
 
         fun toSup(s: String) = s.map { superMap[it] ?: it.toString() }.joinToString("")
@@ -937,21 +937,21 @@ object NativePdfExporter {
 
         var s = latex
         s = s.replace(Regex("\\\\frac\\{([^}]*)\\}\\{([^}]*)\\}")) { m -> "${m.groupValues[1]}/${m.groupValues[2]}" }
-        s = s.replace(Regex("\\\\sqrt\\{([^}]*)\\}")) { m -> "√${m.groupValues[1]}" }
-        s = s.replace("\\int", "∫")
-        s = s.replace("\\infty", "∞")
-        s = s.replace("\\sqrt", "√")
-        s = s.replace("\\pi", "π")
-        s = s.replace("\\pm", "±")
-        s = s.replace("\\mp", "∓")
-        s = s.replace("\\alpha", "α").replace("\\beta", "β").replace("\\gamma", "γ")
-        s = s.replace("\\delta", "δ").replace("\\sigma", "σ")
-        s = s.replace("\\theta", "θ").replace("\\lambda", "λ").replace("\\mu", "μ")
-        s = s.replace("\\leq", "≤").replace("\\geq", "≥").replace("\\neq", "≠")
-        s = s.replace("\\approx", "≈").replace("\\sum", "∑")
-        s = s.replace("\\times", "×").replace("\\cdot", "⋅")
-        s = s.replace("\\div", "÷")
-        s = s.replace("\\rightarrow", "→").replace("\\Rightarrow", "⇒")
+        s = s.replace(Regex("\\\\sqrt\\{([^}]*)\\}")) { m -> "âˆš${m.groupValues[1]}" }
+        s = s.replace("\\int", "âˆ«")
+        s = s.replace("\\infty", "âˆž")
+        s = s.replace("\\sqrt", "âˆš")
+        s = s.replace("\\pi", "Ï€")
+        s = s.replace("\\pm", "Â±")
+        s = s.replace("\\mp", "âˆ“")
+        s = s.replace("\\alpha", "Î±").replace("\\beta", "Î²").replace("\\gamma", "Î³")
+        s = s.replace("\\delta", "Î´").replace("\\sigma", "Ïƒ")
+        s = s.replace("\\theta", "Î¸").replace("\\lambda", "Î»").replace("\\mu", "Î¼")
+        s = s.replace("\\leq", "â‰¤").replace("\\geq", "â‰¥").replace("\\neq", "â‰ ")
+        s = s.replace("\\approx", "â‰ˆ").replace("\\sum", "âˆ‘")
+        s = s.replace("\\times", "Ã—").replace("\\cdot", "â‹…")
+        s = s.replace("\\div", "Ã·")
+        s = s.replace("\\rightarrow", "â†’").replace("\\Rightarrow", "â‡’")
         s = s.replace("\\left", "").replace("\\right", "")
         s = s.replace("\\{", "{").replace("\\}", "}")
         s = s.replace("\\,", " ")
@@ -1244,16 +1244,16 @@ object NativePdfExporter {
             val quotePairs = listOf(
                 "\"" to "\"",
                 "'" to "'",
-                "“" to "”",
-                "“" to "“",
-                "”" to "”",
-                "‘" to "’",
-                "‘" to "‘",
-                "’" to "’",
-                "«" to "»",
-                "„" to "‟",
-                "＂" to "＂",
-                "＇" to "＇"
+                "â€œ" to "â€",
+                "â€œ" to "â€œ",
+                "â€" to "â€",
+                "â€˜" to "â€™",
+                "â€˜" to "â€˜",
+                "â€™" to "â€™",
+                "Â«" to "Â»",
+                "â€ž" to "â€Ÿ",
+                "ï¼‚" to "ï¼‚",
+                "ï¼‡" to "ï¼‡"
             )
             for (pair in quotePairs) {
                 if (clean.startsWith(pair.first) && clean.endsWith(pair.second)) {
@@ -1265,7 +1265,7 @@ object NativePdfExporter {
         }
 
         // Match all advanced markdown/html structures precisely
-        val regex = Regex("(?is)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*.*?\\*\\*\\*|___.*?___|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\)]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
+        val regex = Regex("(?is)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*.*?\\*\\*\\*|___.*?___|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\)]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(Ù†)ØŒ,Ø›;ã€‚ï¼ï¼Ÿ!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
         val matches = regex.findAll(encodedInput)
 
         for (match in matches) {
@@ -1363,7 +1363,7 @@ object NativePdfExporter {
                         val decodedLinkUrl = decodeEscapesUnescaped(linkUrl)
                         
                         val start = builder.length
-                        builder.append("[🖼️ $altText]")
+                        builder.append("[ðŸ–¼ï¸ $altText]")
                         
                         try {
                             val connection = java.net.URL(decodedImgUrl).openConnection() as java.net.HttpURLConnection
@@ -1391,6 +1391,14 @@ object NativePdfExporter {
                         builder.append(matchedText)
                     }
                 }
+                matchedTextLower.startsWith("[^") && matchedTextLower.endsWith("]") && !matchedTextLower.contains("](") && !matchedTextLower.contains("][") -> {
+                    val label = matchedTextClean.substring(2, matchedTextClean.length - 1)
+                    val matchStart = builder.length - matchedText.length
+                    builder.setSpan(android.text.style.SuperscriptSpan(), matchStart, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.RelativeSizeSpan(0.7f), matchStart, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), matchStart, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.replace(matchStart, builder.length, label)
+                }
                 matchedTextLower.startsWith("![") && matchedTextLower.contains("](" ) -> {
                     val imgRegex = Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")
                     val imgMatch = imgRegex.matchEntire(matchedTextClean)
@@ -1401,7 +1409,7 @@ object NativePdfExporter {
                         val decodedUrl = decodeEscapesUnescaped(url)
                         
                         val start = builder.length
-                        builder.append("[🖼️ $altText]")
+                        builder.append("[ðŸ–¼ï¸ $altText]")
                         
                         try {
                             val connection = java.net.URL(decodedUrl).openConnection() as java.net.HttpURLConnection
