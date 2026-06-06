@@ -15,7 +15,8 @@ object HtmlExporter {
         text: String,
         outputStream: OutputStream,
         title: String = "خروجی CleanRTL (CleanRTL Web Document)",
-        fontSizePx: Int = 16
+        fontSizePx: Int = 16,
+        isJustified: Boolean = false
     ) {
         val rawParagraphs = text.split("\n")
         val paragraphs = mutableListOf<String>()
@@ -653,12 +654,12 @@ object HtmlExporter {
                     }
 
                     .rtl {
-                        text-align: right;
+                        text-align: ${if (isJustified) "justify" else "right"};
                         direction: rtl;
                     }
 
                     .ltr {
-                        text-align: left;
+                        text-align: ${if (isJustified) "justify" else "left"};
                         direction: ltr;
                         font-family: 'Inter', sans-serif;
                     }
@@ -1273,5 +1274,16 @@ object HtmlExporter {
             processedLine
         }
         return processedLines.joinToString("\n")
+    }
+
+    fun exportToHtmlString(
+        text: String,
+        title: String = "خروجی CleanRTL (CleanRTL Web Document)",
+        fontSizePx: Int = 16,
+        isJustified: Boolean = false
+    ): String {
+        val outputStream = java.io.ByteArrayOutputStream()
+        exportToHtml(text, outputStream, title, fontSizePx, isJustified)
+        return outputStream.toString("UTF-8")
     }
 }

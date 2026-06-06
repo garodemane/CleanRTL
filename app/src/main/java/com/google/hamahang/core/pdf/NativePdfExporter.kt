@@ -32,7 +32,8 @@ object NativePdfExporter {
         outputStream: OutputStream,
         title: String = "CleanRTL Document",
         baseFontSize: Float = 12f,
-        mermaidBitmaps: Map<String, android.graphics.Bitmap> = emptyMap()
+        mermaidBitmaps: Map<String, android.graphics.Bitmap> = emptyMap(),
+        isJustified: Boolean = false
     ) {
         val pdfDocument = PdfDocument()
 
@@ -592,7 +593,7 @@ object NativePdfExporter {
             val indentMargin = (if (isList) listIndent + 16f else listIndent) + detailsIndent
             val layoutWidth = (printableWidth - indentMargin - quoteIndent).toInt()
 
-            val textLayout = StaticLayout.Builder.obtain(
+            val textLayoutBuilder = StaticLayout.Builder.obtain(
                 spannedText,
                 0,
                 spannedText.length,
@@ -602,7 +603,12 @@ object NativePdfExporter {
             .setAlignment(alignment)
             .setTextDirection(directionHeuristic)
             .setLineSpacing(0f, 1.2f)
-            .build()
+            
+            if (isJustified && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                textLayoutBuilder.setJustificationMode(android.text.Layout.JUSTIFICATION_MODE_INTER_WORD)
+            }
+            
+            val textLayout = textLayoutBuilder.build()
 
             val layoutHeight = textLayout.height
             val blockSpacing = if (isHeader) baseFontSize else baseFontSize * 0.5f
@@ -720,12 +726,17 @@ object NativePdfExporter {
                 val spannedText = parseMarkdownAndHtmlToSpannable(context, fnText, baseFontSize * 0.8f, boldTypeface, italicTypeface, referenceMap)
                 
                 val isRtl = TextRepairProcessor.isParagraphRtl(fnText)
-                val textLayout = StaticLayout.Builder.obtain(
+                val textLayoutBuilder = StaticLayout.Builder.obtain(
                     spannedText, 0, spannedText.length, textPaint, printableWidth.toInt()
                 )
                 .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                 .setTextDirection(if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR)
-                .build()
+                
+                if (isJustified && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    textLayoutBuilder.setJustificationMode(android.text.Layout.JUSTIFICATION_MODE_INTER_WORD)
+                }
+                
+                val textLayout = textLayoutBuilder.build()
 
                 if (yOffset + textLayout.height > pageHeight - margin) {
                     pdfDocument.finishPage(currentPage)

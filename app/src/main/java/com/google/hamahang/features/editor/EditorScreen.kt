@@ -28,6 +28,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -64,6 +67,43 @@ import com.google.hamahang.core.mermaid.MermaidRenderer
 import androidx.compose.ui.platform.LocalUriHandler
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
+
+val PrinterIcon: ImageVector
+    get() = ImageVector.Builder(
+        name = "Print",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).apply {
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(19f, 8f)
+            lineTo(5f, 8f)
+            curveTo(3.34f, 8f, 2f, 9.34f, 2f, 11f)
+            lineTo(2f, 17f)
+            lineTo(6f, 17f)
+            lineTo(6f, 21f)
+            lineTo(18f, 21f)
+            lineTo(18f, 17f)
+            lineTo(22f, 17f)
+            lineTo(22f, 11f)
+            curveTo(22f, 9.34f, 20.66f, 8f, 19f, 8f)
+            close()
+            moveTo(16f, 19f)
+            lineTo(8f, 19f)
+            lineTo(8f, 14f)
+            lineTo(16f, 14f)
+            lineTo(16f, 19f)
+            close()
+            moveTo(18f, 3f)
+            lineTo(6f, 3f)
+            lineTo(6f, 7f)
+            lineTo(18f, 7f)
+            lineTo(18f, 3f)
+            close()
+        }
+    }.build()
+
 @Composable
 fun CurveHeader(modifier: Modifier = Modifier) {
     val isDark = isSystemInDarkTheme()
@@ -293,6 +333,7 @@ fun repairText(input: String): String {
     var correctedText by remember { mutableStateOf("") }
     var activeTab by remember { mutableStateOf(0) }
     var fontSizeSp by remember { mutableStateOf(16) }
+    var isJustified by remember { mutableStateOf(false) }
 
     LaunchedEffect(rawText.text, enableNormalization) {
         correctedText = TextRepairProcessor.repairText(rawText.text, enableNormalization)
@@ -360,7 +401,7 @@ fun repairText(input: String): String {
     }
 
     fun handlePrint() {
-        val htmlString = HtmlExporter.exportToHtmlString(correctedText, fontSizePx = fontSizeSp)
+        val htmlString = HtmlExporter.exportToHtmlString(correctedText, fontSizePx = fontSizeSp, isJustified = isJustified)
         
         val webView = WebView(context)
         webView.webViewClient = object : WebViewClient() {
@@ -445,7 +486,8 @@ fun repairText(input: String): String {
                     outputStream = outputStream,
                     title = "CleanRTL Document",
                     baseFontSize = fontSizeSp.toFloat(),
-                    mermaidBitmaps = mermaidBitmaps
+                    mermaidBitmaps = mermaidBitmaps,
+                    isJustified = isJustified
                 )
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     Toast.makeText(context, "${Loc.tr("toast_pdf_saved", currentLanguage)} (${pdfFile.name})", Toast.LENGTH_LONG).show()
@@ -470,11 +512,12 @@ fun repairText(input: String): String {
                 text = correctedText,
                 outputStream = outputStream,
                 title = "CleanRTL Web Document",
-                fontSizePx = fontSizeSp
+                fontSizePx = fontSizeSp,
+                isJustified = isJustified
             )
-            Toast.makeText(context, "${Loc.tr("toast_html_saved", currentLanguage)} (${htmlFile.name})", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "${Loc.tr("toast_html_saved", currentLanguage)} (${htmlFile.name})", Toast.LENGTH_SHORT).show()
         } catch (e: java.lang.Exception) {
-            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -549,7 +592,7 @@ fun repairText(input: String): String {
                                 modifier = Modifier.size(40.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Share,
+                                    imageVector = PrinterIcon,
                                     contentDescription = if (currentLanguage == AppLanguage.FA) "پرینت" else "Print",
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -685,6 +728,17 @@ fun repairText(input: String): String {
                                                 )
                                             }
                                         }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        IconButton(
+                                            onClick = { isJustified = !isJustified },
+                                            colors = IconButtonDefaults.iconButtonColors(
+                                                containerColor = if (isJustified) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                contentColor = if (isJustified) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary
+                                            ),
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Text("≡", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                        }
                                         Spacer(modifier = Modifier.width(16.dp))
                                         IconButton(
                                             onClick = { if (fontSizeSp > 10) fontSizeSp-- },
@@ -733,7 +787,8 @@ fun repairText(input: String): String {
                                             title = Loc.tr("preview_label", currentLanguage),
                                             text = correctedText, 
                                             baseFontSize = fontSizeSp,
-                                            uiFontScale = uiFontScale
+                                            uiFontScale = uiFontScale,
+                                            isJustified = isJustified
                                         )
                                     }
                                 }
@@ -802,7 +857,8 @@ fun repairText(input: String): String {
                                             title = Loc.tr("preview_label", currentLanguage),
                                             text = correctedText, 
                                             baseFontSize = fontSizeSp,
-                                            uiFontScale = uiFontScale
+                                            uiFontScale = uiFontScale,
+                                            isJustified = isJustified
                                         )
                                     }
                                 }
@@ -992,6 +1048,7 @@ fun MarkdownPreviewPane(
     text: String,
     baseFontSize: Int,
     uiFontScale: Float,
+    isJustified: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -1017,7 +1074,8 @@ fun MarkdownPreviewPane(
             MarkdownPreviewPaneContents(
                 text = text,
                 baseFontSize = baseFontSize,
-                uiFontScale = uiFontScale
+                uiFontScale = uiFontScale,
+                isJustified = isJustified
             )
         }
     }
@@ -1027,7 +1085,8 @@ fun MarkdownPreviewPane(
 fun MarkdownPreviewPaneContents(
     text: String,
     baseFontSize: Int,
-    uiFontScale: Float
+    uiFontScale: Float,
+    isJustified: Boolean = false
 ) {
     val rawLines = text.split("\n")
     val mergedLines = mutableListOf<String>()
@@ -1099,11 +1158,13 @@ fun MarkdownPreviewPaneContents(
                     summaryText = summaryMatch.groupValues[1].trim()
                     contentText = fullContent.replace(summaryMatch.value, "").trim()
                 }
-                MarkdownDetailsBlock(
-                    summaryText = summaryText,
-                    contentText = contentText,
-                    baseFontSize = baseFontSize,
-                    uiFontScale = uiFontScale
+                MarkdownDetails(
+                    summary = summaryText,
+                    content = contentText,
+                    baseFontSize = (baseFontSize * uiFontScale).sp,
+                    uiFontScale = uiFontScale,
+                    referenceMap = referenceMap,
+                    isJustified = isJustified
                 )
                 detailsLines.clear()
                 inDetailsBlock = false
@@ -1323,12 +1384,25 @@ fun MarkdownPreviewPaneContents(
             }
             // Regular list item
             fullyCleanTrimmed.startsWith("- ") || fullyCleanTrimmed.startsWith("* ") || fullyCleanTrimmed.startsWith("• ") -> {
-                MarkdownListItem(text = bidiPrefix + fullyCleanTrimmed.substring(2), fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+                MarkdownListItem(
+                    text = bidiPrefix + fullyCleanTrimmed.substring(2),
+                    fontSize = (baseFontSize * uiFontScale).sp,
+                    level = listLevel,
+                    referenceMap = referenceMap,
+                    isJustified = isJustified
+                )
             }
             numberedListMatch != null -> {
                 val number = numberedListMatch.groupValues[1]
                 val content = numberedListMatch.groupValues[3]
-                MarkdownNumberedListItem(number = number, text = bidiPrefix + content, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+                MarkdownNumberedListItem(
+                    number = number,
+                    text = bidiPrefix + content,
+                    fontSize = (baseFontSize * uiFontScale).sp,
+                    level = listLevel,
+                    referenceMap = referenceMap,
+                    isJustified = isJustified
+                )
             }
             fullyCleanTrimmed == "---" || fullyCleanTrimmed == "***" || fullyCleanTrimmed == "___" -> {
                 MarkdownDivider()
@@ -1373,21 +1447,11 @@ fun MarkdownPreviewPaneContents(
                 MarkdownBlockquote(text = bidiPrefix + tempStr, fontSize = (baseFontSize * 0.95).sp, level = quoteLevel, referenceMap = referenceMap)
             }
             else -> {
-                val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
-                val resolvedText = parseMarkdownInlineStyles(bidiPrefix + cleanParagraph, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer)
-                val isRtl = TextRepairProcessor.isParagraphRtl(cleanParagraph)
-                
-                Text(
-                    text = resolvedText,
-                    style = TextStyle(
-                        fontSize = baseFontSize.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Start,
-                        textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
+                MarkdownParagraph(
+                    text = bidiPrefix + cleanParagraph,
+                    fontSize = (baseFontSize * uiFontScale).sp,
+                    referenceMap = referenceMap,
+                    isJustified = isJustified
                 )
             }
         }
@@ -1421,7 +1485,8 @@ fun MarkdownPreviewPaneContents(
                 MarkdownParagraph(
                     text = footnoteText,
                     fontSize = (baseFontSize * 0.9).sp,
-                    referenceMap = referenceMap
+                    referenceMap = referenceMap,
+                    isJustified = isJustified
                 )
             }
         }
@@ -1429,11 +1494,13 @@ fun MarkdownPreviewPaneContents(
 }
 
 @Composable
-fun MarkdownDetailsBlock(
-    summaryText: String,
-    contentText: String,
-    baseFontSize: Int,
-    uiFontScale: Float
+fun MarkdownDetails(
+    summary: String,
+    content: String,
+    baseFontSize: androidx.compose.ui.unit.TextUnit,
+    uiFontScale: Float,
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
+    isJustified: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
     Card(
@@ -1455,12 +1522,12 @@ fun MarkdownDetailsBlock(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                val styledSummary = parseMarkdownInlineStyles(summaryText, MaterialTheme.colorScheme.secondaryContainer, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                val styledSummary = parseMarkdownInlineStyles(summary, MaterialTheme.colorScheme.secondaryContainer, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer)
                 Text(
                     text = styledSummary,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = (baseFontSize * 1.0).sp,
+                    fontSize = baseFontSize,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Icon(
@@ -1472,9 +1539,10 @@ fun MarkdownDetailsBlock(
             if (expanded) {
                 Spacer(modifier = Modifier.height(8.dp))
                 MarkdownPreviewPaneContents(
-                    text = contentText,
-                    baseFontSize = baseFontSize,
-                    uiFontScale = uiFontScale
+                    text = content,
+                    baseFontSize = (baseFontSize.value / uiFontScale).toInt(),
+                    uiFontScale = uiFontScale,
+                    isJustified = isJustified
                 )
             }
         }
@@ -1510,7 +1578,8 @@ fun MarkdownListItem(
     text: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
     level: Int = 0,
-    referenceMap: Map<String, Pair<String, String?>> = emptyMap()
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
+    isJustified: Boolean = false
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
@@ -1555,7 +1624,7 @@ fun MarkdownListItem(
                 text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer),
                 style = TextStyle(
                     fontSize = fontSize,
-                    textAlign = TextAlign.Start,
+                    textAlign = if (isJustified) TextAlign.Justify else TextAlign.Start,
                     textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr,
                     color = MaterialTheme.colorScheme.onSurface
                 ),
@@ -1691,7 +1760,8 @@ fun MarkdownNumberedListItem(
     text: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
     level: Int = 0,
-    referenceMap: Map<String, Pair<String, String?>> = emptyMap()
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
+    isJustified: Boolean = false
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
@@ -1718,7 +1788,7 @@ fun MarkdownNumberedListItem(
                 text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer),
                 style = TextStyle(
                     fontSize = fontSize,
-                    textAlign = TextAlign.Start,
+                    textAlign = if (isJustified) TextAlign.Justify else TextAlign.Start,
                     textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr,
                     color = MaterialTheme.colorScheme.onSurface
                 ),
@@ -1733,7 +1803,8 @@ fun MarkdownBlockquote(
     text: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
     level: Int = 1,
-    referenceMap: Map<String, Pair<String, String?>> = emptyMap()
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
+    isJustified: Boolean = false
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
@@ -1766,7 +1837,7 @@ fun MarkdownBlockquote(
                     fontSize = fontSize,
                     fontStyle = FontStyle.Italic,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                    textAlign = TextAlign.Start,
+                    textAlign = if (isJustified) TextAlign.Justify else TextAlign.Start,
                     textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
                 ),
                 modifier = Modifier.weight(1f)
@@ -2268,7 +2339,8 @@ fun highlightCode(code: String): AnnotatedString {
 fun MarkdownParagraph(
     text: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
-    referenceMap: Map<String, Pair<String, String?>> = emptyMap()
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
+    isJustified: Boolean = false
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
@@ -2277,7 +2349,7 @@ fun MarkdownParagraph(
         style = TextStyle(
             fontSize = fontSize,
             color = MaterialTheme.colorScheme.onSurface,
-            textAlign = if (isRtl) TextAlign.Right else TextAlign.Left,
+            textAlign = if (isJustified) TextAlign.Justify else if (isRtl) TextAlign.Right else TextAlign.Left,
             textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
         ),
         modifier = Modifier
