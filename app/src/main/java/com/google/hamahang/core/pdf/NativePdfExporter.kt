@@ -914,33 +914,57 @@ object NativePdfExporter {
     }
 
     private fun replaceLatexWithUnicode(latex: String): String {
-        return latex
-            .replace("\\int", "∫")
-            .replace("\\infty", "∞")
-            .replace("\\sqrt", "√")
-            .replace("\\pi", "π")
-            .replace("\\pm", "±")
-            .replace("\\alpha", "α")
-            .replace("\\beta", "β")
-            .replace("\\gamma", "γ")
-            .replace("\\theta", "θ")
-            .replace("\\sum", "∑")
-            .replace("\\approx", "≈")
-            .replace("\\neq", "≠")
-            .replace("\\leq", "≤")
-            .replace("\\geq", "≥")
-            .replace("\\times", "×")
-            .replace("\\div", "÷")
-            .replace("\\rightarrow", "→")
-            .replace("\\Rightarrow", "⇒")
-            .replace("\\left", "")
-            .replace("\\right", "")
-            .replace("\\{", "{")
-            .replace("\\}", "}")
-            .replace("\\,", " ")
-            .replace("_{", "_")
-            .replace("^{", "^")
-            .replace("}", "") // Remove remaining right braces from frac/sub/sup if simple enough
+        val superMap = mapOf(
+            '0' to "⁰", '1' to "¹", '2' to "²", '3' to "³", '4' to "⁴",
+            '5' to "⁵", '6' to "⁶", '7' to "⁷", '8' to "⁸", '9' to "⁹",
+            '+' to "⁺", '-' to "⁻", '=' to "⁼", '(' to "⁽", ')' to "⁾",
+            'a' to "ᵃ", 'b' to "ᵇ", 'c' to "ᶜ", 'd' to "ᵈ", 'e' to "ᵉ",
+            'f' to "ᶠ", 'g' to "ᵍ", 'h' to "ʰ", 'i' to "ⁱ", 'j' to "ʲ",
+            'k' to "ᵏ", 'l' to "ˡ", 'm' to "ᵐ", 'n' to "ⁿ", 'o' to "ᵒ",
+            'p' to "ᵖ", 'r' to "ʳ", 's' to "ˢ", 't' to "ᵗ", 'u' to "ᵘ",
+            'v' to "ᵛ", 'w' to "ʷ", 'x' to "ˣ", 'y' to "ʸ", 'z' to "ᶻ"
+        )
+        val subMap = mapOf(
+            '0' to "₀", '1' to "₁", '2' to "₂", '3' to "₃", '4' to "₄",
+            '5' to "₅", '6' to "₆", '7' to "₇", '8' to "₈", '9' to "₉",
+            '+' to "₊", '-' to "₋", '=' to "₌", '(' to "₍", ')' to "₎",
+            'a' to "ₐ", 'e' to "ₑ", 'o' to "ₒ", 'i' to "ᵢ", 'u' to "ᵤ",
+            'x' to "ₓ", 'r' to "ᵣ", 'v' to "ᵥ", 'j' to "ⱼ"
+        )
+
+        fun toSup(s: String) = s.map { superMap[it] ?: it.toString() }.joinToString("")
+        fun toSub(s: String) = s.map { subMap[it] ?: it.toString() }.joinToString("")
+
+        var s = latex
+        s = s.replace(Regex("\\\\frac\\{([^}]*)\\}\\{([^}]*)\\}")) { m -> "${m.groupValues[1]}/${m.groupValues[2]}" }
+        s = s.replace(Regex("\\\\sqrt\\{([^}]*)\\}")) { m -> "√${m.groupValues[1]}" }
+        s = s.replace("\\int", "∫")
+        s = s.replace("\\infty", "∞")
+        s = s.replace("\\sqrt", "√")
+        s = s.replace("\\pi", "π")
+        s = s.replace("\\pm", "±")
+        s = s.replace("\\mp", "∓")
+        s = s.replace("\\alpha", "α").replace("\\beta", "β").replace("\\gamma", "γ")
+        s = s.replace("\\delta", "δ").replace("\\sigma", "σ")
+        s = s.replace("\\theta", "θ").replace("\\lambda", "λ").replace("\\mu", "μ")
+        s = s.replace("\\leq", "≤").replace("\\geq", "≥").replace("\\neq", "≠")
+        s = s.replace("\\approx", "≈").replace("\\sum", "∑")
+        s = s.replace("\\times", "×").replace("\\cdot", "⋅")
+        s = s.replace("\\div", "÷")
+        s = s.replace("\\rightarrow", "→").replace("\\Rightarrow", "⇒")
+        s = s.replace("\\left", "").replace("\\right", "")
+        s = s.replace("\\{", "{").replace("\\}", "}")
+        s = s.replace("\\,", " ")
+
+        s = s.replace(Regex("\\^\\{([^}]*)\\}")) { m -> toSup(m.groupValues[1]) }
+        s = s.replace(Regex("\\^([0-9a-zA-Z+\\-])")) { m -> toSup(m.groupValues[1]) }
+        s = s.replace(Regex("_\\{([^}]*)\\}")) { m -> toSub(m.groupValues[1]) }
+        s = s.replace(Regex("_([0-9a-zA-Z])")) { m -> toSub(m.groupValues[1]) }
+        
+        // Final cleanup for dangling braces
+        s = s.replace("_{", "_").replace("^{", "^").replace("}", "")
+        
+        return s
     }
 
     private enum class TableColumnAlignment {

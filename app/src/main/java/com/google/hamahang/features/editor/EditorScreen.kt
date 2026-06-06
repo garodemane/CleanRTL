@@ -76,7 +76,8 @@ val PrinterIcon: ImageVector
         viewportWidth = 24f,
         viewportHeight = 24f
     ).apply {
-        path(fill = SolidColor(Color.Black)) {
+        path(fill = SolidColor(Color.White)) {
+            // M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z
             moveTo(19f, 8f)
             lineTo(5f, 8f)
             curveTo(3.34f, 8f, 2f, 9.34f, 2f, 11f)
@@ -95,6 +96,12 @@ val PrinterIcon: ImageVector
             lineTo(16f, 14f)
             lineTo(16f, 19f)
             close()
+            moveTo(19f, 12f)
+            curveTo(18.45f, 12f, 18f, 11.55f, 18f, 11f)
+            curveTo(18f, 10.45f, 18.45f, 10f, 19f, 10f)
+            curveTo(19.55f, 10f, 20f, 10.45f, 20f, 11f)
+            curveTo(20f, 11.55f, 19.55f, 12f, 19f, 12f)
+            close()
             moveTo(18f, 3f)
             lineTo(6f, 3f)
             lineTo(6f, 7f)
@@ -103,6 +110,49 @@ val PrinterIcon: ImageVector
             close()
         }
     }.build()
+
+val AlignJustifyIcon: ImageVector
+    get() = ImageVector.Builder(
+        name = "AlignJustify",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).apply {
+        path(fill = SolidColor(Color.White)) {
+            moveTo(3f, 21f)
+            lineTo(21f, 21f)
+            lineTo(21f, 19f)
+            lineTo(3f, 19f)
+            lineTo(3f, 21f)
+            close()
+            moveTo(3f, 17f)
+            lineTo(21f, 17f)
+            lineTo(21f, 15f)
+            lineTo(3f, 15f)
+            lineTo(3f, 17f)
+            close()
+            moveTo(3f, 13f)
+            lineTo(21f, 13f)
+            lineTo(21f, 11f)
+            lineTo(3f, 11f)
+            lineTo(3f, 13f)
+            close()
+            moveTo(3f, 9f)
+            lineTo(21f, 9f)
+            lineTo(21f, 7f)
+            lineTo(3f, 7f)
+            lineTo(3f, 9f)
+            close()
+            moveTo(3f, 5f)
+            lineTo(21f, 5f)
+            lineTo(21f, 3f)
+            lineTo(3f, 3f)
+            lineTo(3f, 5f)
+            close()
+        }
+    }.build()
+
 
 @Composable
 fun CurveHeader(modifier: Modifier = Modifier) {

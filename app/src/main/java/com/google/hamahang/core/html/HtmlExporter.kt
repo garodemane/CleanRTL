@@ -1133,6 +1133,27 @@ object HtmlExporter {
         // 3. Auto-emails: <email@domain.com>
         res = res.replace(Regex("<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})>"), "<a href=\"mailto:$1\" style=\"color: var(--accent-color); text-decoration: underline;\">$1</a>")
 
+        // 11.0. Inline image links: [![alt](img)](url)
+        res = res.replace(Regex("\\[!\\[([^\\]]*)\\]\\([^\\)]+?\\)\\]\\(([^\\)]+?)\\)")) { match ->
+            val alt = match.groupValues[1].ifEmpty { "image" }
+            val rawImgUrl = match.value.substringAfter("](").substringBefore(")]").trim()
+            val rawLinkUrl = match.groupValues[2].trim()
+            val imgUrlClean = rawImgUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            val linkUrlClean = rawLinkUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            val imgUrl = imgUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: imgUrlClean
+            val linkUrl = linkUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: linkUrlClean
+            "<a href=\"$linkUrl\"><img class='inline-img' src=\"$imgUrl\" alt=\"$alt\"></a>"
+        }
+
+        // 11. Inline images: ![alt](url)
+        res = res.replace(Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")) { match ->
+            val alt = match.groupValues[1].ifEmpty { "image" }
+            val rawUrl = match.groupValues[2].trim()
+            val urlClean = rawUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            val url = urlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: urlClean
+            "<img class='inline-img' src=\"$url\" alt=\"$alt\">"
+        }
+
         // 4. Links: [text](url)
         res = res.replace(Regex("\\[([^\\]]+?)\\]\\(([^\\)]+?)\\)"), { match ->
             val text = match.groupValues[1]
@@ -1166,26 +1187,7 @@ object HtmlExporter {
             "<code>$decodedCode</code>"
         })
 
-        // 11.0. Inline image links: [![alt](img)](url)
-        res = res.replace(Regex("\\[!\\[([^\\]]*)\\]\\([^\\)]+?\\)\\]\\(([^\\)]+?)\\)")) { match ->
-            val alt = match.groupValues[1].ifEmpty { "image" }
-            val rawImgUrl = match.value.substringAfter("](").substringBefore(")]").trim()
-            val rawLinkUrl = match.groupValues[2].trim()
-            val imgUrlClean = rawImgUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-            val linkUrlClean = rawLinkUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-            val imgUrl = imgUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: imgUrlClean
-            val linkUrl = linkUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: linkUrlClean
-            "<a href=\"$linkUrl\"><img class='inline-img' src=\"$imgUrl\" alt=\"$alt\"></a>"
-        }
 
-        // 11. Inline images: ![alt](url)
-        res = res.replace(Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")) { match ->
-            val alt = match.groupValues[1].ifEmpty { "image" }
-            val rawUrl = match.groupValues[2].trim()
-            val urlClean = rawUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-            val url = urlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: urlClean
-            "<img class='inline-img' src=\"$url\" alt=\"$alt\">"
-        }
 
         // 12. Footnote references: [^1] -> superscript link
         res = res.replace(Regex("\\[\\^([^\\]]+)\\]")) { match ->
@@ -1193,7 +1195,13 @@ object HtmlExporter {
             "<sup><a href='#fn-$label'>[$label]</a></sup>"
         }
 
-        // 13. Emoji shortcodes: :name:
+        // 13. Inline math: $math$ (Clean Bidi markers so KaTeX works)
+        res = res.replace(Regex("\\$([^\\$]+)\\$")) { match ->
+            val cleanMath = match.groupValues[1].replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            "$$cleanMath$"
+        }
+
+        // 14. Emoji shortcodes: :name:
         val emojiMap = mapOf(
             ":memo:" to "\uD83D\uDCDD",
             ":heart:" to "\u2764\uFE0F",
