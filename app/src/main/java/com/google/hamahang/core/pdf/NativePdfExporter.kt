@@ -1331,15 +1331,38 @@ object NativePdfExporter {
                     val imgLinkMatch = imgLinkRegex.matchEntire(matchedTextClean)
                     if (imgLinkMatch != null) {
                         val altText = imgLinkMatch.groupValues[1].ifEmpty { "image link" }
-                        val rawUrl = imgLinkMatch.groupValues[2].trim()
-                        val url = cleanQuotes(rawUrl)
-                        val decodedUrl = decodeEscapesUnescaped(url)
+                        val rawImgUrl = matchedTextClean.substringAfter("](").substringBefore(")]").trim()
+                        val rawLinkUrl = imgLinkMatch.groupValues[2].trim()
+                        val imgUrl = cleanQuotes(rawImgUrl)
+                        val linkUrl = cleanQuotes(rawLinkUrl)
+                        val decodedImgUrl = decodeEscapesUnescaped(imgUrl)
+                        val decodedLinkUrl = decodeEscapesUnescaped(linkUrl)
                         
                         val start = builder.length
                         builder.append("[🖼️ $altText]")
-                        builder.setSpan(ForegroundColorSpan(Color.BLUE), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        builder.setSpan(android.text.style.URLSpan(decodedUrl), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        
+                        try {
+                            val connection = java.net.URL(decodedImgUrl).openConnection() as java.net.HttpURLConnection
+                            connection.requestMethod = "GET"
+                            connection.setRequestProperty("User-Agent", "Mozilla/5.0")
+                            connection.connectTimeout = 5000
+                            connection.readTimeout = 5000
+                            val stream = connection.inputStream
+                            val bitmap = android.graphics.BitmapFactory.decodeStream(stream)
+                            if (bitmap != null) {
+                                val maxWidth = 400
+                                val scaledBitmap = if (bitmap.width > maxWidth) {
+                                    android.graphics.Bitmap.createScaledBitmap(bitmap, maxWidth, (bitmap.height * (maxWidth.toFloat() / bitmap.width)).toInt(), true)
+                                } else bitmap
+                                builder.setSpan(android.text.style.ImageSpan(context, scaledBitmap), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            } else {
+                                builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            }
+                        } catch (e: Exception) {
+                            builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
+                        
+                        builder.setSpan(android.text.style.URLSpan(decodedLinkUrl), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     } else {
                         builder.append(matchedText)
                     }
@@ -1357,7 +1380,12 @@ object NativePdfExporter {
                         builder.append("[🖼️ $altText]")
                         
                         try {
-                            val stream = java.net.URL(decodedUrl).openStream()
+                            val connection = java.net.URL(decodedUrl).openConnection() as java.net.HttpURLConnection
+                            connection.requestMethod = "GET"
+                            connection.setRequestProperty("User-Agent", "Mozilla/5.0")
+                            connection.connectTimeout = 5000
+                            connection.readTimeout = 5000
+                            val stream = connection.inputStream
                             val bitmap = android.graphics.BitmapFactory.decodeStream(stream)
                             if (bitmap != null) {
                                 val maxWidth = 400

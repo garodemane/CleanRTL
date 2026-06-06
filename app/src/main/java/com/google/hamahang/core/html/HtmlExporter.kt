@@ -1166,11 +1166,24 @@ object HtmlExporter {
             "<code>$decodedCode</code>"
         })
 
+        // 11.0. Inline image links: [![alt](img)](url)
+        res = res.replace(Regex("\\[!\\[([^\\]]*)\\]\\([^\\)]+?\\)\\]\\(([^\\)]+?)\\)")) { match ->
+            val alt = match.groupValues[1].ifEmpty { "image" }
+            val rawImgUrl = match.value.substringAfter("](").substringBefore(")]").trim()
+            val rawLinkUrl = match.groupValues[2].trim()
+            val imgUrlClean = rawImgUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            val linkUrlClean = rawLinkUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            val imgUrl = imgUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: imgUrlClean
+            val linkUrl = linkUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: linkUrlClean
+            "<a href=\"$linkUrl\"><img class='inline-img' src=\"$imgUrl\" alt=\"$alt\"></a>"
+        }
+
         // 11. Inline images: ![alt](url)
         res = res.replace(Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")) { match ->
             val alt = match.groupValues[1].ifEmpty { "image" }
             val rawUrl = match.groupValues[2].trim()
-            val url = rawUrl.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: rawUrl
+            val urlClean = rawUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            val url = urlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: urlClean
             "<img class='inline-img' src=\"$url\" alt=\"$alt\">"
         }
 
