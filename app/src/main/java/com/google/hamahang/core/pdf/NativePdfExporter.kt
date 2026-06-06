@@ -522,26 +522,23 @@ object NativePdfExporter {
             val numberedListMatch = Regex("^(([a-zA-Z0-9]+)\\.)\\s+(.*)").matchEntire(trimmed)
 
             // 3. Bullet Lists (- or * or •) — task list first
-            val cleanTrimmedForList = trimmed
-                .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
-                .trim()
-            if (cleanTrimmedForList.startsWith("- [x] ") || cleanTrimmedForList.startsWith("- [X] ") ||
-                cleanTrimmedForList.startsWith("* [x] ") || cleanTrimmedForList.startsWith("* [X] ") ||
-                cleanTrimmedForList.startsWith("• [x] ") || cleanTrimmedForList.startsWith("• [X] ")) {
+            if (cleanCodeBlockTrim.startsWith("- [x] ") || cleanCodeBlockTrim.startsWith("- [X] ") ||
+                cleanCodeBlockTrim.startsWith("* [x] ") || cleanCodeBlockTrim.startsWith("* [X] ") ||
+                cleanCodeBlockTrim.startsWith("• [x] ") || cleanCodeBlockTrim.startsWith("• [X] ")) {
                 val bullet = "☑  "
-                displayText = bullet + cleanTrimmedForList.substring(6)
+                displayText = bullet + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6)
                 isList = true
-            } else if (cleanTrimmedForList.startsWith("- [ ] ") || cleanTrimmedForList.startsWith("* [ ] ") || cleanTrimmedForList.startsWith("• [ ] ")) {
+            } else if (cleanCodeBlockTrim.startsWith("- [ ] ") || cleanCodeBlockTrim.startsWith("* [ ] ") || cleanCodeBlockTrim.startsWith("• [ ] ")) {
                 val bullet = "☐  "
-                displayText = bullet + cleanTrimmedForList.substring(6)
+                displayText = bullet + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6)
                 isList = true
-            } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {
+            } else if (cleanCodeBlockTrim.startsWith("- ") || cleanCodeBlockTrim.startsWith("* ") || cleanCodeBlockTrim.startsWith("• ")) {
                 val bullet = when (listLevel % 3) {
                     1 -> "◦  "
                     2 -> "▪  "
                     else -> "•  "
                 }
-                displayText = bullet + trimmed.substring(2)
+                displayText = bullet + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 2)
                 isList = true
             }
             // 3b. Numbered/Alphabetical Lists

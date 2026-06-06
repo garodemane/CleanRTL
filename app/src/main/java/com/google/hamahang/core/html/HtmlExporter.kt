@@ -377,39 +377,40 @@ object HtmlExporter {
                     tag = "h6"
                     displayText = trimmed.substring(7)
                 }
-                (cleanTrimmed.startsWith("- [x] ") || cleanTrimmed.startsWith("- [X] ") ||
-                 cleanTrimmed.startsWith("* [x] ") || cleanTrimmed.startsWith("* [X] ")) -> {
+                (cleanCodeBlockTrim.startsWith("- [x] ") || cleanCodeBlockTrim.startsWith("- [X] ") ||
+                 cleanCodeBlockTrim.startsWith("* [x] ") || cleanCodeBlockTrim.startsWith("* [X] ")) -> {
                     isList = true
                     listType = "ul"
-                    val content = cleanTrimmed.substring(6)
+                    val content = TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6)
                     listText = "<span class='task-checked'>&#9989;</span> $content"
                 }
-                (cleanTrimmed.startsWith("- [ ] ") || cleanTrimmed.startsWith("* [ ] ")) -> {
+                (cleanCodeBlockTrim.startsWith("- [ ] ") || cleanCodeBlockTrim.startsWith("* [ ] ")) -> {
                     isList = true
                     listType = "ul"
-                    val content = cleanTrimmed.substring(6)
+                    val content = TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6)
                     listText = "<span class='task-unchecked'>&#9744;</span> $content"
                 }
-                trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ") -> {
+                cleanCodeBlockTrim.startsWith("- ") || cleanCodeBlockTrim.startsWith("* ") || cleanCodeBlockTrim.startsWith("• ") -> {
                     isList = true
                     listType = "ul"
-                    listText = trimmed.substring(2)
+                    listText = TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 2)
                 }
                 numberedListMatch != null -> {
                     isList = true
                     listType = "ol"
                     listText = numberedListMatch.groupValues[3]
                 }
-                cleanTrimmed.startsWith(">") -> {
+                cleanCodeBlockTrim.startsWith(">") -> {
                     isQuote = true
                     var qL = 0
-                    var tempStr = cleanTrimmed
+                    var tempStr = cleanCodeBlockTrim
                     while (tempStr.startsWith(">")) {
                         qL++
                         tempStr = tempStr.substring(1).trim()
                     }
                     quoteLevel = qL
-                    quoteText = tempStr
+                    val prefixLen = cleanCodeBlockTrim.length - tempStr.length
+                    quoteText = TextRepairProcessor.stripPrefixKeepingBidi(trimmed, prefixLen)
                 }
             }
 

@@ -257,4 +257,22 @@ object TextRepairProcessor {
             text
         }
     }
+
+    /**
+     * Strips a prefix of a certain length (ignoring bidi control characters) from the original string,
+     * preserving all bidi control characters in the remaining string.
+     */
+    fun stripPrefixKeepingBidi(original: String, prefixLengthWithoutBidi: Int): String {
+        var nonBidiCount = 0
+        val bidiChars = setOf('\u200E', '\u200F', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E', '\u2066', '\u2067', '\u2068', '\u2069')
+        for (i in original.indices) {
+            if (original[i] !in bidiChars) {
+                nonBidiCount++
+            }
+            if (nonBidiCount == prefixLengthWithoutBidi) {
+                return original.substring(i + 1)
+            }
+        }
+        return ""
+    }
 }

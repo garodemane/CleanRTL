@@ -1377,15 +1377,15 @@ fun MarkdownPreviewPaneContents(
             // Task list: - [x] / - [ ]
             (fullyCleanTrimmed.startsWith("- [x] ") || fullyCleanTrimmed.startsWith("- [X] ") ||
              fullyCleanTrimmed.startsWith("* [x] ") || fullyCleanTrimmed.startsWith("* [X] ")) -> {
-                MarkdownCheckboxItem(text = bidiPrefix + fullyCleanTrimmed.substring(6), checked = true, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+                MarkdownCheckboxItem(text = bidiPrefix + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6), checked = true, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
             }
             (fullyCleanTrimmed.startsWith("- [ ] ") || fullyCleanTrimmed.startsWith("* [ ] ")) -> {
-                MarkdownCheckboxItem(text = bidiPrefix + fullyCleanTrimmed.substring(6), checked = false, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
+                MarkdownCheckboxItem(text = bidiPrefix + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6), checked = false, fontSize = baseFontSize.sp, level = listLevel, referenceMap = referenceMap)
             }
             // Regular list item
             fullyCleanTrimmed.startsWith("- ") || fullyCleanTrimmed.startsWith("* ") || fullyCleanTrimmed.startsWith("• ") -> {
                 MarkdownListItem(
-                    text = bidiPrefix + fullyCleanTrimmed.substring(2),
+                    text = bidiPrefix + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 2),
                     fontSize = (baseFontSize * uiFontScale).sp,
                     level = listLevel,
                     referenceMap = referenceMap,

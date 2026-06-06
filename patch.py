@@ -1,33 +1,58 @@
-import os
+﻿import os
+import io
 import re
 
-pdf_file = "app/src/main/java/com/google/hamahang/core/pdf/NativePdfExporter.kt"
-with open(pdf_file, "r", encoding="utf-8") as f:
-    pdf_content = f.read()
+path = r'app\src\main\java\com\google\hamahang\core\pdf\NativePdfExporter.kt'
+with io.open(path, 'r', encoding='utf-8') as f:
+    content = f.read()
 
-# Fix regex in NativePdfExporter
-regex_pattern = r"""val regex = Regex\(""" + "\"(?is)(\\Q(?is)(\\E.*?)\\)\""""
-if "___.*?___" not in pdf_content:
-    pdf_content = pdf_content.replace(
-        "|\\*\\*\\*.*?\\*\\*\\*|",
-        "|***.*?***|___.*?___|"
-    )
+target = '''            val cleanTrimmedForList = trimmed
+                .replace(Regex("^[\\\\u200E\\\\u200F\\\\u202A\\\\u202B\\\\u202C\\\\u202D\\\\u202E\\\\u2066\\\\u2067\\\\u2068\\\\u2069]+"), "")
+                .trim()
+            if (cleanTrimmedForList.startsWith("- [x] ") || cleanTrimmedForList.startsWith("- [X] ") ||
+                cleanTrimmedForList.startsWith("* [x] ") || cleanTrimmedForList.startsWith("* [X] ") ||
+                cleanTrimmedForList.startsWith("• [x] ") || cleanTrimmedForList.startsWith("• [X] ")) {
+                val bullet = "☑  "
+                displayText = bullet + cleanTrimmedForList.substring(6)
+                isList = true
+            } else if (cleanTrimmedForList.startsWith("- [ ] ") || cleanTrimmedForList.startsWith("* [ ] ") || cleanTrimmedForList.startsWith("• [ ] ")) {
+                val bullet = "☐  "
+                displayText = bullet + cleanTrimmedForList.substring(6)
+                isList = true
+            } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {
+                val bullet = when (listLevel % 3) {
+                    1 -> "◦  "
+                    2 -> "▪  "
+                    else -> "•  "
+                }
+                displayText = bullet + trimmed.substring(2)
+                isList = true
+            } else if (numberedListMatch != null) {'''
 
-with open(pdf_file, "w", encoding="utf-8") as f:
-    f.write(pdf_content)
+replacement = '''            val cleanTrimmedForList = trimmed
+                .replace(Regex("[\\\\u200E\\\\u200F\\\\u202A\\\\u202B\\\\u202C\\\\u202D\\\\u202E\\\\u2066\\\\u2067\\\\u2068\\\\u2069]"), "")
+                .trim()
+            if (cleanTrimmedForList.startsWith("- [x] ") || cleanTrimmedForList.startsWith("- [X] ") ||
+                cleanTrimmedForList.startsWith("* [x] ") || cleanTrimmedForList.startsWith("* [X] ") ||
+                cleanTrimmedForList.startsWith("• [x] ") || cleanTrimmedForList.startsWith("• [X] ")) {
+                val bullet = "☑  "
+                displayText = bullet + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6)
+                isList = true
+            } else if (cleanTrimmedForList.startsWith("- [ ] ") || cleanTrimmedForList.startsWith("* [ ] ") || cleanTrimmedForList.startsWith("• [ ] ")) {
+                val bullet = "☐  "
+                displayText = bullet + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 6)
+                isList = true
+            } else if (cleanTrimmedForList.startsWith("- ") || cleanTrimmedForList.startsWith("* ") || cleanTrimmedForList.startsWith("• ")) {
+                val bullet = when (listLevel % 3) {
+                    1 -> "◦  "
+                    2 -> "▪  "
+                    else -> "•  "
+                }
+                displayText = bullet + com.google.hamahang.core.bidi.TextRepairProcessor.stripPrefixKeepingBidi(trimmed, 2)
+                isList = true
+            } else if (numberedListMatch != null) {'''
 
-html_file = "app/src/main/java/com/google/hamahang/core/html/HtmlExporter.kt"
-with open(html_file, "r", encoding="utf-8") as f:
-    html_content = f.read()
+content = content.replace(target, replacement)
 
-if "___.*?___" not in html_content:
-    html_content = html_content.replace(
-        "|\\*\\*\\*.*?\\*\\*\\*|",
-        "|***.*?***|___.*?___|"
-    )
-
-with open(html_file, "w", encoding="utf-8") as f:
-    f.write(html_content)
-
-print("Regex patched")
-
+with io.open(path, 'w', encoding='utf-8') as f:
+    f.write(content)
