@@ -34,7 +34,7 @@ object MermaidRenderer {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+                <script src="file:///android_asset/mermaid/mermaid.min.js"></script>
                 <script>
                     mermaid.initialize({
                         startOnLoad: false,
@@ -134,7 +134,7 @@ object MermaidRenderer {
             }
         }
 
-        webView.loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
+        webView.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null)
 
         // Set a timeout of 8 seconds to prevent hanging if offline or if CDN is unreachable
         val result = withTimeoutOrNull(8000) {
