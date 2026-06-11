@@ -1054,16 +1054,25 @@ object NativePdfExporter {
             return r
         }
 
-        s = s.replace(Regex("\\^\\{\\s*([^}]*?)\\s*\\}")) { m ->
-            val inner = latexSymbolToStr(m.groupValues[1])
-            toSup(inner)
+        var prevSup = ""
+        while (prevSup != s) {
+            prevSup = s
+            s = s.replace(Regex("\\^\\{([^{}]*)\\}")) { m ->
+                val inner = latexSymbolToStr(m.groupValues[1])
+                toSup(inner)
+            }
+            s = s.replace(Regex("_\\{([^{}]*)\\}")) { m ->
+                val inner = latexSymbolToStr(m.groupValues[1])
+                toSub(inner)
+            }
         }
-        s = s.replace(Regex("\\^([0-9a-zA-Z+\\-=])")) { m -> toSup(m.groupValues[1]) }
-        s = s.replace(Regex("_\\{\\s*([^}]*?)\\s*\\}")) { m ->
-            val inner = latexSymbolToStr(m.groupValues[1])
-            toSub(inner)
+        // Also handle unbraced ^x and _x. We should loop this too in case of e^x^2 (though technically invalid latex, people write it)
+        var prevUnbraced = ""
+        while (prevUnbraced != s) {
+            prevUnbraced = s
+            s = s.replace(Regex("\\^([0-9a-zA-Z+\\-=])")) { m -> toSup(m.groupValues[1]) }
+            s = s.replace(Regex("_([0-9a-zA-Z+\\-=])")) { m -> toSub(m.groupValues[1]) }
         }
-        s = s.replace(Regex("_([0-9a-zA-Z+\\-=])")) { m -> toSub(m.groupValues[1]) }
 
         // Step 5: Replace remaining LaTeX symbols with unicode
         s = s.replace("\\int", "\u222B").replace("\\oint", "\u222E")

@@ -603,6 +603,8 @@ fun repairText(input: String): String {
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
+                .systemBarsPadding()
+                .imePadding()
         ) {
             CurveHeader(
                 modifier = Modifier
@@ -2214,7 +2216,7 @@ fun ComposeMermaidBlock(code: String) {
                 body {
                     background-color: transparent;
                     margin: 0;
-                    padding: 16px;
+                    padding: 8px;
                     display: flex;
                     justify-content: center;
                     align-items: center;
@@ -2225,6 +2227,10 @@ fun ComposeMermaidBlock(code: String) {
                     justify-content: center;
                     align-items: center;
                     width: 100%;
+                }
+                svg {
+                    max-width: 100%;
+                    height: auto;
                 }
             </style>
         </head>

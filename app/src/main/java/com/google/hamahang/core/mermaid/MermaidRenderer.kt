@@ -43,31 +43,55 @@ object MermaidRenderer {
                     });
                     
                     window.onload = function() {
-                        // wait a bit for mermaid to process the pre tag
+                        var container = document.getElementById('mermaid-container');
+                        
+                        // Check if it's already rendered
+                        var svgs = document.getElementsByTagName('svg');
+                        if (svgs.length > 0) {
+                            reportComplete(svgs[0], container);
+                            return;
+                        }
+
+                        // Otherwise wait for it
+                        var observer = new MutationObserver(function(mutations) {
+                            var svgs = document.getElementsByTagName('svg');
+                            if (svgs.length > 0) {
+                                observer.disconnect();
+                                // Wait a tiny bit for the browser to layout the SVG
+                                setTimeout(function() {
+                                    reportComplete(svgs[0], container);
+                                }, 100);
+                            }
+                        });
+                        
+                        observer.observe(document.body, { childList: true, subtree: true });
+                        
+                        // Fallback timeout in case mermaid fails silently
                         setTimeout(function() {
-                            try {
-                                var container = document.getElementById('mermaid-container');
-                                var svgs = document.getElementsByTagName('svg');
-                                if (svgs.length > 0) {
-                                    var svg = svgs[0];
-                                    var rect = svg.getBoundingClientRect();
-                                    var width = rect.width || container.scrollWidth || 500;
-                                    var height = rect.height || container.scrollHeight || 300;
-                                    if (window.AndroidInterface) {
-                                        window.AndroidInterface.onRenderComplete(Math.ceil(width), Math.ceil(height));
-                                    }
-                                } else {
-                                    if (window.AndroidInterface) {
-                                        window.AndroidInterface.onError("No SVG element found after rendering.");
-                                    }
-                                }
-                            } catch (err) {
+                            var svgs = document.getElementsByTagName('svg');
+                            if (svgs.length === 0) {
+                                observer.disconnect();
                                 if (window.AndroidInterface) {
-                                    window.AndroidInterface.onError("JS Error: " + err.message);
+                                    window.AndroidInterface.onError("Timeout: No SVG element found after rendering.");
                                 }
                             }
-                        }, 500); // wait 500ms for mermaid to finish
+                        }, 5000);
                     };
+
+                    function reportComplete(svg, container) {
+                        try {
+                            var rect = svg.getBoundingClientRect();
+                            var width = rect.width || container.scrollWidth || 500;
+                            var height = rect.height || container.scrollHeight || 300;
+                            if (window.AndroidInterface) {
+                                window.AndroidInterface.onRenderComplete(Math.ceil(width), Math.ceil(height));
+                            }
+                        } catch (err) {
+                            if (window.AndroidInterface) {
+                                window.AndroidInterface.onError("JS Error in reportComplete: " + err.message);
+                            }
+                        }
+                    }
                 </script>
                 <style>
                     body {
