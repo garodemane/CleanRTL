@@ -899,10 +899,10 @@ object NativePdfExporter {
 
         val renderedBitmap = mermaidBitmaps[cleanCode] ?: mermaidBitmaps[rawCode]
         if (renderedBitmap != null) {
-            val scale = width / renderedBitmap.width.toFloat()
-            val finalScale = if (scale < 1f) scale else 1f
-            val drawWidth = renderedBitmap.width * finalScale
-            val drawHeight = renderedBitmap.height * finalScale
+            // Scale to fit printable width (shrink if too large, expand up to width if too small)
+            val scale = (width / renderedBitmap.width.toFloat()).coerceAtMost(2f)
+            val drawWidth = (renderedBitmap.width * scale).coerceAtMost(width)
+            val drawHeight = renderedBitmap.height * (drawWidth / renderedBitmap.width.toFloat())
 
             // Draw visual graph with perfect page break
             if (yOffset + drawHeight > maxHeight) {
@@ -912,6 +912,10 @@ object NativePdfExporter {
 
             val xOffset = margin + (width - drawWidth) / 2f
             val destRect = RectF(xOffset, yOffset, xOffset + drawWidth, yOffset + drawHeight)
+
+            // Draw white background first (bitmap may be transparent)
+            val bgPaint = Paint().apply { color = android.graphics.Color.WHITE; style = Paint.Style.FILL }
+            currentCanvas.drawRect(destRect, bgPaint)
             currentCanvas.drawBitmap(renderedBitmap, null, destRect, Paint(Paint.FILTER_BITMAP_FLAG))
 
             return yOffset + drawHeight + 15f
@@ -1607,7 +1611,7 @@ object NativePdfExporter {
                     builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
-                matchedTextLower.startsWith("<abbr") || matchedTextLower.contains("abbr") -> {
+                matchedTextLower.startsWith("<abbr") -> {
                     val abbrRegex = Regex("(?is)<[\\s\\u00A0]*abbr([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>")
                     val abbrMatch = abbrRegex.matchEntire(matchedTextClean)
                     if (abbrMatch != null) {
@@ -1634,7 +1638,7 @@ object NativePdfExporter {
                     builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(android.text.style.URLSpan("mailto:$matchedTextClean"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
-                matchedTextLower.startsWith("<font") || matchedTextLower.contains("font") -> {
+                matchedTextLower.startsWith("<font") -> {
                     val fontClean = matchedTextClean.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     val fontRegex = Regex("(?is)<[\\s\\u00A0]*font([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
                     val fontMatch = fontRegex.find(fontClean)
@@ -1648,7 +1652,7 @@ object NativePdfExporter {
                         val colorMatch = Regex("(?i)color[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                         if (colorMatch != null) {
                             val colorRaw = colorMatch.groupValues[1].trim().replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-                            color = parseHtmlColorToInt(cleanQuotes(colorRaw))
+                            color = parseHtmlColorToInt(decodeEscapesUnescaped(cleanQuotes(colorRaw)))
                         }
 
                         val sizeMatch = Regex("(?i)size[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
@@ -1670,7 +1674,7 @@ object NativePdfExporter {
                         builder.append(matchedText)
                     }
                 }
-                matchedTextLower.startsWith("<span") || matchedTextLower.contains("span") -> {
+                matchedTextLower.startsWith("<span") -> {
                     val spanClean = matchedTextClean.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     val spanRegex = Regex("(?is)<[\\s\\u00A0]*span([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
                     val spanMatch = spanRegex.find(spanClean)
@@ -1683,10 +1687,10 @@ object NativePdfExporter {
                         var isBold = false
                         var isItalic = false
 
-                        val styleMatch = Regex("(?i)style[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
+                        val styleMatch = Regex("(?i)style[\\s\\u00A0]*=[\\s\\u00A0]*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\\u00A0>]+))").find(attrsStr)
                         if (styleMatch != null) {
-                            val rawStyle = styleMatch.groupValues[1]
-                            val styleStr = cleanQuotes(rawStyle)
+                            val rawStyle = styleMatch.groupValues.drop(1).firstOrNull { it.isNotEmpty() } ?: ""
+                            val styleStr = decodeEscapesUnescaped(rawStyle.trim())
 
                             styleStr.split(";").forEach { stylePart ->
                                 val colonIdx = stylePart.indexOf(':')
