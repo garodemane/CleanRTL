@@ -1395,7 +1395,8 @@ object NativePdfExporter {
         }
 
         // Match all advanced markdown/html structures precisely
-        val regex = Regex("(?is)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*.*?\\*\\*\\*|___.*?___|\\*\\*.*?\\*\\*|__.*?__|\\*.*?\\*|_[^_\\n\\r]+?_|~~.*?~~|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\)]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
+        // NOTE: Do NOT use (?s) / dotall — it causes patterns like **...** to span across lines
+        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<ins>[^\\n]*?</ins>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $))")
         val matches = regex.findAll(res)
 
         for (match in matches) {
@@ -1482,77 +1483,30 @@ object NativePdfExporter {
                 }
                 matchedTextLower.startsWith("[![") && matchedTextLower.contains("](") -> {
                     val imgLinkRegex = Regex("\\[!\\[([^\\]]*)\\]\\([^\\)]+?\\)\\]\\(([^\\)]+?)\\)")
-                    val imgLinkMatch = imgLinkRegex.matchEntire(matchedTextClean)
+                    val imgLinkMatch = imgLinkRegex.find(matchedTextClean)
                     if (imgLinkMatch != null) {
-                        val altText = imgLinkMatch.groupValues[1].ifEmpty { "image link" }
-                        val rawImgUrl = matchedTextClean.substringAfter("](").substringBefore(")]").trim()
+                        val altText = imgLinkMatch.groupValues[1].ifEmpty { "image" }
                         val rawLinkUrl = imgLinkMatch.groupValues[2].trim()
-                        val imgUrl = cleanQuotes(rawImgUrl)
-                        val linkUrl = cleanQuotes(rawLinkUrl)
-                        val decodedImgUrl = decodeEscapesUnescaped(imgUrl)
-                        val decodedLinkUrl = decodeEscapesUnescaped(linkUrl)
-                        
+                        val linkUrl = cleanQuotes(decodeEscapesUnescaped(rawLinkUrl))
                         val start = builder.length
-                        builder.append("[\uD83D\uDDBC\uFE0F $altText]")
-                        
-                        try {
-                            val connection = java.net.URL(decodedImgUrl).openConnection() as java.net.HttpURLConnection
-                            connection.requestMethod = "GET"
-                            connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-                            connection.connectTimeout = 5000
-                            connection.readTimeout = 5000
-                            val stream = connection.inputStream
-                            val bitmap = android.graphics.BitmapFactory.decodeStream(stream)
-                            if (bitmap != null) {
-                                val maxWidth = 400
-                                val scaledBitmap = if (bitmap.width > maxWidth) {
-                                    android.graphics.Bitmap.createScaledBitmap(bitmap, maxWidth, (bitmap.height * (maxWidth.toFloat() / bitmap.width)).toInt(), true)
-                                } else bitmap
-                                builder.setSpan(android.text.style.ImageSpan(context, scaledBitmap), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            } else {
-                                builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            }
-                        } catch (e: Exception) {
-                            builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        }
-                        
-                        builder.setSpan(android.text.style.URLSpan(decodedLinkUrl), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.append("\uD83D\uDDBC\uFE0F $altText")
+                        builder.setSpan(ForegroundColorSpan(Color.BLUE), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(android.text.style.URLSpan(linkUrl), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     } else {
                         builder.append(matchedText)
                     }
                 }
-                matchedTextLower.startsWith("![") && matchedTextLower.contains("](" ) -> {
+                matchedTextLower.startsWith("![") && matchedTextLower.contains("](") -> {
                     val imgRegex = Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")
-                    val imgMatch = imgRegex.matchEntire(matchedTextClean)
+                    val imgMatch = imgRegex.find(matchedTextClean)
                     if (imgMatch != null) {
                         val altText = imgMatch.groupValues[1].ifEmpty { "image" }
-                        val rawUrl = imgMatch.groupValues[2].trim()
-                        val url = cleanQuotes(rawUrl)
-                        val decodedUrl = decodeEscapesUnescaped(url)
-                        
+                        // ImageSpan doesn't render in StaticLayout on PDF canvas; show alt text
                         val start = builder.length
-                        builder.append("[\uD83D\uDDBC\uFE0F $altText]")
-                        
-                        try {
-                            val connection = java.net.URL(decodedUrl).openConnection() as java.net.HttpURLConnection
-                            connection.requestMethod = "GET"
-                            connection.setRequestProperty("User-Agent", "Mozilla/5.0")
-                            connection.connectTimeout = 5000
-                            connection.readTimeout = 5000
-                            val stream = connection.inputStream
-                            val bitmap = android.graphics.BitmapFactory.decodeStream(stream)
-                            if (bitmap != null) {
-                                val maxWidth = 400
-                                val scaledBitmap = if (bitmap.width > maxWidth) {
-                                    android.graphics.Bitmap.createScaledBitmap(bitmap, maxWidth, (bitmap.height * (maxWidth.toFloat() / bitmap.width)).toInt(), true)
-                                } else bitmap
-                                builder.setSpan(android.text.style.ImageSpan(context, scaledBitmap), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            } else {
-                                builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                            }
-                        } catch (e: Exception) {
-                            builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        }
+                        builder.append("\uD83D\uDDBC\uFE0F $altText")
+                        builder.setSpan(ForegroundColorSpan(Color.rgb(80, 80, 80)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     } else {
                         builder.append(matchedText)
                     }
