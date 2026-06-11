@@ -336,6 +336,9 @@ fun SettingsOptionSelector(
     }
 }
 
+
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EditorScreen(
     windowWidthSizeClass: WindowWidthSizeClass,
@@ -360,6 +363,7 @@ fun EditorScreen(
     val isDark = isSystemInDarkTheme()
 
     var navigationTab by remember { mutableStateOf(0) }
+    val isImeVisible = WindowInsets.isImeVisible
 
     var rawText by remember { 
         mutableStateOf(TextFieldValue(sharedText ?: """# معرفی CleanRTL
@@ -606,64 +610,69 @@ fun repairText(input: String): String {
                 .systemBarsPadding()
                 .imePadding()
         ) {
-            CurveHeader(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .align(Alignment.TopCenter)
-            )
+            AnimatedVisibility(
+                visible = !isImeVisible,
+                modifier = Modifier.align(Alignment.TopCenter)
+            ) {
+                CurveHeader(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                )
+            }
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = 96.dp)
+                    .padding(bottom = if (isImeVisible) 16.dp else 96.dp)
             ) {
-                // Customized dynamic Top Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = Loc.tr("app_title", currentLanguage),
-                        style = TextStyle(
-                            fontSize = (26.sp * uiFontScale),
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
+                AnimatedVisibility(visible = !isImeVisible) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = Loc.tr("app_title", currentLanguage),
+                            style = TextStyle(
+                                fontSize = (26.sp * uiFontScale),
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
                         )
-                    )
-                    
-                    if (navigationTab == 0) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            IconButton(
-                                onClick = { handlePrint() },
-                                colors = IconButtonDefaults.iconButtonColors(
-                                    containerColor = Color.White.copy(alpha = 0.2f),
-                                    contentColor = Color.White
-                                ),
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(
-                                    imageVector = PrinterIcon,
-                                    contentDescription = if (currentLanguage == AppLanguage.FA) "پرینت" else "Print",
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            IconButton(
-                                onClick = { rawText = TextFieldValue("") },
-                                colors = IconButtonDefaults.iconButtonColors(
-                                    containerColor = Color.White.copy(alpha = 0.2f),
-                                    contentColor = Color.White
-                                ),
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = Loc.tr("clear_desc", currentLanguage),
-                                    modifier = Modifier.size(20.dp)
-                                )
+                        
+                        if (navigationTab == 0) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                IconButton(
+                                    onClick = { handlePrint() },
+                                    colors = IconButtonDefaults.iconButtonColors(
+                                        containerColor = Color.White.copy(alpha = 0.2f),
+                                        contentColor = Color.White
+                                    ),
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = PrinterIcon,
+                                        contentDescription = if (currentLanguage == AppLanguage.FA) "پرینت" else "Print",
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { rawText = TextFieldValue("") },
+                                    colors = IconButtonDefaults.iconButtonColors(
+                                        containerColor = Color.White.copy(alpha = 0.2f),
+                                        contentColor = Color.White
+                                    ),
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = Loc.tr("clear_desc", currentLanguage),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -681,69 +690,73 @@ fun repairText(input: String): String {
                                 .fillMaxSize()
                                 .padding(horizontal = 20.dp)
                         ) {
-                            // Row 1: Paste and Copy strictly text-only
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 10.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Button(
-                                    onClick = { handlePaste() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(48.dp)
-                                ) {
-                                    Text(
-                                        text = Loc.tr("btn_paste", currentLanguage), 
-                                        fontSize = (14.sp * uiFontScale), 
-                                        fontWeight = FontWeight.Bold, 
-                                        maxLines = 1
-                                    )
+                            AnimatedVisibility(visible = !isImeVisible) {
+                                Column {
+                                    // Row 1: Paste and Copy strictly text-only
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 10.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Button(
+                                            onClick = { handlePaste() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                            shape = RoundedCornerShape(16.dp),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(48.dp)
+                                        ) {
+                                            Text(
+                                                text = Loc.tr("btn_paste", currentLanguage), 
+                                                fontSize = (14.sp * uiFontScale), 
+                                                fontWeight = FontWeight.Bold, 
+                                                maxLines = 1
+                                            )
+                                        }
+                                        Button(
+                                            onClick = { handleCopy() },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant, 
+                                                contentColor = MaterialTheme.colorScheme.primary
+                                            ),
+                                            shape = RoundedCornerShape(16.dp),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(48.dp)
+                                        ) {
+                                            Text(
+                                                text = Loc.tr("btn_copy", currentLanguage), 
+                                                fontSize = (14.sp * uiFontScale), 
+                                                fontWeight = FontWeight.Bold, 
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                    
+                                    // Row 2: PDF and HTML strictly text-only gradient buttons
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        GradientButton(
+                                            text = Loc.tr("btn_pdf", currentLanguage),
+                                            colors = listOf(CoralStart, CoralEnd),
+                                            onClick = { handleExportPdf() },
+                                            uiFontScale = uiFontScale,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        GradientButton(
+                                            text = Loc.tr("btn_html", currentLanguage),
+                                            colors = listOf(RoyalPurple, MaterialTheme.colorScheme.primary),
+                                            onClick = { handleExportHtml() },
+                                            uiFontScale = uiFontScale,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
                                 }
-                                Button(
-                                    onClick = { handleCopy() },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant, 
-                                        contentColor = MaterialTheme.colorScheme.primary
-                                    ),
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(48.dp)
-                                ) {
-                                    Text(
-                                        text = Loc.tr("btn_copy", currentLanguage), 
-                                        fontSize = (14.sp * uiFontScale), 
-                                        fontWeight = FontWeight.Bold, 
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                            
-                            // Row 2: PDF and HTML strictly text-only gradient buttons
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                GradientButton(
-                                    text = Loc.tr("btn_pdf", currentLanguage),
-                                    colors = listOf(CoralStart, CoralEnd),
-                                    onClick = { handleExportPdf() },
-                                    uiFontScale = uiFontScale,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                GradientButton(
-                                    text = Loc.tr("btn_html", currentLanguage),
-                                    colors = listOf(RoyalPurple, MaterialTheme.colorScheme.primary),
-                                    onClick = { handleExportHtml() },
-                                    uiFontScale = uiFontScale,
-                                    modifier = Modifier.weight(1f)
-                                )
                             }
 
                                 Row(
@@ -1073,15 +1086,19 @@ fun repairText(input: String): String {
                 }
             }
 
-            FloatingBottomNavigation(
-                selectedTab = navigationTab,
-                onTabSelected = { navigationTab = it },
-                currentLanguage = currentLanguage,
-                uiFontScale = uiFontScale,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 24.dp, vertical = 16.dp)
-            )
+            AnimatedVisibility(
+                visible = !isImeVisible,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                FloatingBottomNavigation(
+                    selectedTab = navigationTab,
+                    onTabSelected = { navigationTab = it },
+                    currentLanguage = currentLanguage,
+                    uiFontScale = uiFontScale,
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                )
+            }
         }
     }
 }
