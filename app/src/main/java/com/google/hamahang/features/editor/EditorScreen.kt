@@ -516,12 +516,14 @@ fun repairText(input: String): String {
 
                 // 2. Pre-compile all mermaid blocks to bitmaps
                 val mermaidBitmaps = mutableMapOf<String, android.graphics.Bitmap>()
-                for (block in mermaidBlocks) {
+                for ((blockIndex, block) in mermaidBlocks.withIndex()) {
                     val bitmap = MermaidRenderer.renderToBitmap(context, block, isDark)
                     if (bitmap != null) {
                         val cleanBlock = block.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
                         mermaidBitmaps[cleanBlock] = bitmap
                         mermaidBitmaps[block] = bitmap
+                        // Also store by index as a reliable fallback key
+                        mermaidBitmaps["__mermaid_idx_$blockIndex"] = bitmap
                     }
                 }
 

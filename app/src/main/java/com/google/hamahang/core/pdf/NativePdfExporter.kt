@@ -99,6 +99,7 @@ object NativePdfExporter {
         var inMermaidBlock = false
         val mermaidBlockLines = mutableListOf<String>()
         var inDetailsBlock = false
+        var mermaidBlockIndex = 0
 
         var idx = 0
         while (idx < paragraphs.size) {
@@ -146,7 +147,7 @@ object NativePdfExporter {
                     yOffset = drawMermaidBlock(
                         canvas, mermaidBlockLines, textPaint, monospaceTypeface,
                         margin, yOffset, printableWidth, pageHeight - margin,
-                        mermaidBitmaps,
+                        mermaidBitmaps, mermaidBlockIndex,
                         onNewPage = {
                             pdfDocument.finishPage(currentPage)
                             currentPageNumber++
@@ -159,6 +160,7 @@ object NativePdfExporter {
                     )
                     mermaidBlockLines.clear()
                     inMermaidBlock = false
+                    mermaidBlockIndex++
                 } else {
                     mermaidBlockLines.add(paragraph)
                 }
@@ -889,6 +891,7 @@ object NativePdfExporter {
         width: Float,
         maxHeight: Float,
         mermaidBitmaps: Map<String, android.graphics.Bitmap>,
+        blockIndex: Int = -1,
         onNewPage: () -> Canvas
     ): Float {
         var currentCanvas = canvas
@@ -897,7 +900,10 @@ object NativePdfExporter {
         val rawCode = lines.joinToString("\n")
         val cleanCode = rawCode.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
 
-        val renderedBitmap = mermaidBitmaps[cleanCode] ?: mermaidBitmaps[rawCode]
+        val renderedBitmap = mermaidBitmaps[cleanCode] 
+            ?: mermaidBitmaps[rawCode] 
+            ?: if (blockIndex >= 0) mermaidBitmaps["__mermaid_idx_$blockIndex"] else null
+
         if (renderedBitmap != null) {
             // Scale to fit printable width (shrink if too large, expand up to width if too small)
             val scale = (width / renderedBitmap.width.toFloat()).coerceAtMost(2f)
@@ -1005,6 +1011,17 @@ object NativePdfExporter {
         s = s.replace("\\,", " ").replace("\\!", "").replace("\\;", " ").replace("\\:", " ")
         s = s.replace("\\\\", "\n") // LaTeX line break
 
+        // Step 1b: Handle matrix environments — convert to plain text table
+        val matrixEnvRegex = Regex("\\\\begin\\{(p?matrix|b?matrix|Bmatrix|vmatrix|Vmatrix|array)\\}([\\s\\S]*?)\\\\end\\{\\1\\}", RegexOption.DOT_MATCHES_ALL)
+        s = matrixEnvRegex.replace(s) { m ->
+            val rows = m.groupValues[2].split("\\\\").map { row ->
+                row.split("&").joinToString(" | ") { it.trim() }
+            }.filter { it.isNotBlank() }
+            "[\n" + rows.joinToString("\n") + "\n]"
+        }
+        // Clean up any remaining \begin{...} or \end{...}
+        s = s.replace(Regex("\\\\(begin|end)\\{[^}]*\\}"), "")
+
         // Step 2: Handle \frac{num}{den} → num/den  (iterative for nested)
         var prev = ""
         while (prev != s) {
@@ -1018,15 +1035,23 @@ object NativePdfExporter {
 
         // Step 4: Process ^{...} and _{...} BEFORE substituting \infty etc.
         // because the chars inside braces may themselves be LaTeX like \infty
-        fun latexSymbolToStr(sym: String): String = when(sym.trim()) {
-            "\\infty", "infty" -> "\u221E"
-            "\\alpha" -> "\u03B1"; "\\beta" -> "\u03B2"; "\\gamma" -> "\u03B3"
-            "\\delta" -> "\u03B4"; "\\sigma" -> "\u03C3"; "\\theta" -> "\u03B8"
-            "\\pi" -> "\u03C0"; "\\mu" -> "\u03BC"; "\\lambda" -> "\u03BB"
-            "\\tau" -> "\u03C4"; "\\xi" -> "\u03BE"; "\\zeta" -> "\u03B6"
-            "\\eta" -> "\u03B7"; "\\epsilon" -> "\u03B5"; "\\varepsilon" -> "\u03B5"
-            "\\rho" -> "\u03C1"; "\\psi" -> "\u03C8"; "\\phi" -> "\u03C6"; "\\omega" -> "\u03C9"
-            else -> sym
+        // latexSymbolToStr does a FULL replacement pass — not just exact match —
+        // so mixed content like "-\infty" becomes "-∞" → toSub gives "₋∞"
+        fun latexSymbolToStr(sym: String): String {
+            var r = sym
+            r = r.replace("\\infty", "\u221E")
+            r = r.replace("\\alpha", "\u03B1").replace("\\beta", "\u03B2").replace("\\gamma", "\u03B3")
+            r = r.replace("\\delta", "\u03B4").replace("\\sigma", "\u03C3").replace("\\theta", "\u03B8")
+            r = r.replace("\\pi", "\u03C0").replace("\\mu", "\u03BC").replace("\\lambda", "\u03BB")
+            r = r.replace("\\tau", "\u03C4").replace("\\xi", "\u03BE").replace("\\zeta", "\u03B6")
+            r = r.replace("\\eta", "\u03B7").replace("\\epsilon", "\u03B5").replace("\\varepsilon", "\u03B5")
+            r = r.replace("\\rho", "\u03C1").replace("\\psi", "\u03C8").replace("\\phi", "\u03C6").replace("\\omega", "\u03C9")
+            r = r.replace("\\chi", "\u03C7").replace("\\kappa", "\u03BA").replace("\\nu", "\u03BD")
+            r = r.replace("\\pm", "\u00B1").replace("\\mp", "\u2213").replace("\\cdot", "\u22C5")
+            r = r.replace("\\times", "\u00D7").replace("\\div", "\u00F7")
+            r = r.replace("\\leq", "\u2264").replace("\\geq", "\u2265").replace("\\neq", "\u2260")
+            r = r.replace("\\le", "\u2264").replace("\\ge", "\u2265").replace("\\ne", "\u2260")
+            return r
         }
 
         s = s.replace(Regex("\\^\\{([^}]*)\\}")) { m ->
