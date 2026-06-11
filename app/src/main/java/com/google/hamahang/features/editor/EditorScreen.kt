@@ -2214,6 +2214,8 @@ fun ComposeMermaidBlock(code: String) {
         code.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
     }
 
+    var webViewHeight by remember { mutableIntStateOf(250) }
+
     val htmlContent = remember(cleanCode, mermaidTheme) {
         """
         <!DOCTYPE html>
@@ -2229,6 +2231,35 @@ fun ComposeMermaidBlock(code: String) {
                     securityLevel: 'loose',
                     fontFamily: 'Vazirmatn, sans-serif'
                 });
+                
+                window.onload = function() {
+                    var container = document.getElementById('mermaid-container');
+                    
+                    var svgs = document.getElementsByTagName('svg');
+                    if (svgs.length > 0) {
+                        reportHeight(svgs[0], container);
+                        return;
+                    }
+                    
+                    var observer = new MutationObserver(function(mutations) {
+                        var svgs = document.getElementsByTagName('svg');
+                        if (svgs.length > 0) {
+                            observer.disconnect();
+                            setTimeout(function() {
+                                reportHeight(svgs[0], container);
+                            }, 100);
+                        }
+                    });
+                    observer.observe(document.body, { childList: true, subtree: true });
+                };
+                
+                function reportHeight(svg, container) {
+                    var rect = svg.getBoundingClientRect();
+                    var h = rect.height || container.scrollHeight;
+                    if (window.AndroidInterface && h > 0) {
+                        window.AndroidInterface.onRenderComplete(Math.ceil(h));
+                    }
+                }
             </script>
             <style>
                 @font-face {
@@ -2245,6 +2276,9 @@ fun ComposeMermaidBlock(code: String) {
                     font-family: 'Vazirmatn', sans-serif;
                     direction: ltr;
                 }
+                #mermaid-container {
+                    display: inline-block;
+                }
                 .mermaid {
                     display: inline-block;
                     text-align: center;
@@ -2256,7 +2290,7 @@ fun ComposeMermaidBlock(code: String) {
                 }
             </style>
         </head>
-        <body><pre class="mermaid">$cleanCode</pre></body>
+        <body><div id="mermaid-container"><pre class="mermaid">$cleanCode</pre></div></body>
         </html>
         """.trimIndent()
     }
@@ -2272,7 +2306,8 @@ fun ComposeMermaidBlock(code: String) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(350.dp)
+                .heightIn(min = 150.dp, max = 2500.dp)
+                .height(webViewHeight.dp)
                 .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -2287,17 +2322,22 @@ fun ComposeMermaidBlock(code: String) {
                             ) {
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                                     android.util.Log.e("ComposeMermaidBlock", "WebView Error: ${error?.description}")
-                                } else {
-                                    android.util.Log.e("ComposeMermaidBlock", "WebView Error occurred")
                                 }
                             }
                         }
                         webChromeClient = object : android.webkit.WebChromeClient() {
                             override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
-                                android.util.Log.d("ComposeMermaidBlock", "Console: ${consoleMessage?.message()}")
                                 return true
                             }
                         }
+                        addJavascriptInterface(object : Any() {
+                            @android.webkit.JavascriptInterface
+                            fun onRenderComplete(height: Int) {
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    webViewHeight = height + 40
+                                }
+                            }
+                        }, "AndroidInterface")
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         setBackgroundColor(android.graphics.Color.TRANSPARENT)
