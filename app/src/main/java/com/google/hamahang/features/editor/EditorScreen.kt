@@ -2226,24 +2226,29 @@ fun ComposeMermaidBlock(code: String) {
                 mermaid.initialize({
                     startOnLoad: true,
                     theme: '$mermaidTheme',
-                    securityLevel: 'loose'
+                    securityLevel: 'loose',
+                    fontFamily: 'Vazirmatn, sans-serif'
                 });
             </script>
             <style>
+                @font-face {
+                    font-family: 'Vazirmatn';
+                    src: url('file:///android_asset/fonts/vazirmatn_regular.ttf');
+                }
                 body {
                     background-color: transparent;
                     margin: 0;
                     padding: 8px;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
+                    display: block;
+                    text-align: center;
                     overflow: auto;
+                    font-family: 'Vazirmatn', sans-serif;
+                    direction: ltr;
                 }
                 .mermaid {
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    width: 100%;
+                    display: inline-block;
+                    text-align: center;
+                    width: auto;
                 }
                 svg {
                     max-width: 100%;

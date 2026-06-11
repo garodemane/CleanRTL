@@ -39,7 +39,8 @@ object MermaidRenderer {
                     mermaid.initialize({
                         startOnLoad: true,
                         theme: '$mermaidTheme',
-                        securityLevel: 'loose'
+                        securityLevel: 'loose',
+                        fontFamily: 'Vazirmatn, sans-serif'
                     });
                     
                     window.onload = function() {
@@ -94,12 +95,18 @@ object MermaidRenderer {
                     }
                 </script>
                 <style>
+                    @font-face {
+                        font-family: 'Vazirmatn';
+                        src: url('file:///android_asset/fonts/vazirmatn_regular.ttf');
+                    }
                     body {
                         background-color: transparent;
                         margin: 0;
                         padding: 16px;
                         overflow: hidden;
                         display: inline-block;
+                        font-family: 'Vazirmatn', sans-serif;
+                        direction: ltr;
                     }
                     #mermaid-container {
                         display: inline-block;
