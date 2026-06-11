@@ -173,20 +173,53 @@ object MermaidRenderer {
         }
 
         android.util.Log.d("MermaidRenderer", "Loading HTML into WebView...")
-        webView.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null)
+        
+        // Give the WebView an initial size so Mermaid has a viewport to calculate SVG layouts
+        webView.measure(
+            View.MeasureSpec.makeMeasureSpec(2000, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(2000, View.MeasureSpec.EXACTLY)
+        )
+        webView.layout(0, 0, 2000, 2000)
 
-        // Set a timeout of 8 seconds to prevent hanging if offline or if CDN is unreachable
-        val result = withTimeoutOrNull(8000) {
-            deferred.await()
+        // Attach to Window so requestAnimationFrame and JS timers tick correctly!
+        var activity: android.app.Activity? = null
+        var ctx = context
+        while (ctx is android.content.ContextWrapper) {
+            if (ctx is android.app.Activity) {
+                activity = ctx
+                break
+            }
+            ctx = ctx.baseContext
         }
         
-        if (result == null) {
-            android.util.Log.e("MermaidRenderer", "renderToBitmap timed out or failed.")
-        } else {
-            android.util.Log.d("MermaidRenderer", "renderToBitmap success.")
+        val decorView = activity?.window?.decorView as? android.view.ViewGroup
+        if (decorView != null) {
+            val params = android.widget.FrameLayout.LayoutParams(2000, 2000)
+            // Hide it way off screen
+            params.leftMargin = -10000
+            decorView.addView(webView, params)
         }
-        
-        webView.destroy()
-        result
+
+        try {
+            webView.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null)
+
+            // Set a timeout of 8 seconds to prevent hanging if offline or if CDN is unreachable
+            val result = withTimeoutOrNull(8000) {
+                deferred.await()
+            }
+            
+            if (result == null) {
+                android.util.Log.e("MermaidRenderer", "renderToBitmap timed out or failed.")
+            } else {
+                android.util.Log.d("MermaidRenderer", "renderToBitmap success.")
+            }
+            
+            result
+        } finally {
+            if (decorView != null) {
+                decorView.removeView(webView)
+            }
+            webView.destroy()
+        }
     }
 }
