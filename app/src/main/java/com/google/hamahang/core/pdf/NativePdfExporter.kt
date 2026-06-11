@@ -1012,15 +1012,15 @@ object NativePdfExporter {
         s = s.replace("\\\\", "\n") // LaTeX line break
 
         // Step 1b: Handle matrix environments — convert to plain text table
-        val matrixEnvRegex = Regex("\\\\begin\\{(p?matrix|b?matrix|Bmatrix|vmatrix|Vmatrix|array)\\}([\\s\\S]*?)\\\\end\\{\\1\\}", RegexOption.DOT_MATCHES_ALL)
+        val matrixEnvRegex = Regex("\\\\begin\\s*\\{(p?matrix|b?matrix|Bmatrix|vmatrix|Vmatrix|array)\\}([\\s\\S]*?)\\\\end\\s*\\{\\1\\}", RegexOption.DOT_MATCHES_ALL)
         s = matrixEnvRegex.replace(s) { m ->
-            val rows = m.groupValues[2].split("\\\\").map { row ->
+            val rows = m.groupValues[2].split("\n").map { row ->
                 row.split("&").joinToString(" | ") { it.trim() }
             }.filter { it.isNotBlank() }
             "[\n" + rows.joinToString("\n") + "\n]"
         }
         // Clean up any remaining \begin{...} or \end{...}
-        s = s.replace(Regex("\\\\(begin|end)\\{[^}]*\\}"), "")
+        s = s.replace(Regex("\\\\(begin|end)\\s*\\{[^}]*\\}"), "")
 
         // Step 2: Handle \frac{num}{den} → num/den  (iterative for nested)
         var prev = ""
@@ -1054,16 +1054,16 @@ object NativePdfExporter {
             return r
         }
 
-        s = s.replace(Regex("\\^\\{([^}]*)\\}")) { m ->
+        s = s.replace(Regex("\\^\\{\\s*([^}]*?)\\s*\\}")) { m ->
             val inner = latexSymbolToStr(m.groupValues[1])
             toSup(inner)
         }
-        s = s.replace(Regex("\\^([0-9a-zA-Z+\\-])")) { m -> toSup(m.groupValues[1]) }
-        s = s.replace(Regex("_\\{([^}]*)\\}")) { m ->
+        s = s.replace(Regex("\\^([0-9a-zA-Z+\\-=])")) { m -> toSup(m.groupValues[1]) }
+        s = s.replace(Regex("_\\{\\s*([^}]*?)\\s*\\}")) { m ->
             val inner = latexSymbolToStr(m.groupValues[1])
             toSub(inner)
         }
-        s = s.replace(Regex("_([0-9a-zA-Z])")) { m -> toSub(m.groupValues[1]) }
+        s = s.replace(Regex("_([0-9a-zA-Z+\\-=])")) { m -> toSub(m.groupValues[1]) }
 
         // Step 5: Replace remaining LaTeX symbols with unicode
         s = s.replace("\\int", "\u222B").replace("\\oint", "\u222E")
@@ -1123,6 +1123,17 @@ object NativePdfExporter {
         return s
     }
 
+    private fun formatMathBlocks(text: String): String {
+        // First handle block math $$ ... $$
+        var s = text.replace(Regex("\\$\\$([\\s\\S]*?)\\$\\$")) { match ->
+            replaceLatexWithUnicode(match.groupValues[1])
+        }
+        // Then handle inline math $ ... $
+        s = s.replace(Regex("\\$([^$]+?)\\$")) { match ->
+            replaceLatexWithUnicode(match.groupValues[1])
+        }
+        return s
+    }
 
     private enum class TableColumnAlignment {
         LEFT, CENTER, RIGHT
@@ -1425,7 +1436,7 @@ object NativePdfExporter {
 
         // Match all advanced markdown/html structures precisely
         // NOTE: Do NOT use (?s) / dotall — it causes patterns like **...** to span across lines
-        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<ins>[^\\n]*?</ins>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
+        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<ins>[^\\n]*?</ins>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
         val matches = regex.findAll(res)
 
         for (match in matches) {
@@ -1637,17 +1648,45 @@ object NativePdfExporter {
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("<abbr") -> {
-                    val abbrRegex = Regex("(?is)<[\\s\\u00A0]*abbr([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>")
-                    val abbrMatch = abbrRegex.matchEntire(matchedTextClean)
-                    if (abbrMatch != null) {
-                        val innerText = abbrMatch.groupValues[2]
-                        val start = builder.length
-                        builder.append(parseMarkdownAndHtmlToSpannable(context, innerText, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                    val start = builder.length
+                    val contentRegex = Regex("<[\\s\\u00A0]*abbr[^>]*>([^\\n]*?)<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>", RegexOption.IGNORE_CASE)
+                    val contentMatch = contentRegex.matchEntire(matchedTextClean)
+                    if (contentMatch != null) {
+                        builder.append(parseMarkdownAndHtmlToSpannable(context, contentMatch.groupValues[1], baseFontSize, boldTypeface, italicTypeface, referenceMap))
                         builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(android.text.style.RelativeSizeSpan(0.8f), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         builder.setSpan(ForegroundColorSpan(Color.rgb(100, 100, 100)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     } else {
                         builder.append(matchedText)
                     }
+                }
+                matchedTextLower.startsWith("<a ") && matchedTextLower.contains("href=") -> {
+                    val start = builder.length
+                    val aRegex = Regex("<[\\s\\u00A0]*a\\s+href=[\"']([^\"']+)[\"'][^>]*>([^\\n]*?)<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>", RegexOption.IGNORE_CASE)
+                    val aMatch = aRegex.matchEntire(matchedTextClean)
+                    if (aMatch != null) {
+                        val url = aMatch.groupValues[1]
+                        val content = aMatch.groupValues[2]
+                        builder.append(parseMarkdownAndHtmlToSpannable(context, content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                        builder.setSpan(ForegroundColorSpan(Color.BLUE), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(android.text.style.URLSpan(url), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    } else {
+                        builder.append(matchedText)
+                    }
+                }
+                matchedTextLower.startsWith("<div") -> {
+                    val start = builder.length
+                    val divRegex = Regex("<[\\s\\u00A0]*div[^>]*>([^\\n]*?)<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>", RegexOption.IGNORE_CASE)
+                    val divMatch = divRegex.matchEntire(matchedTextClean)
+                    if (divMatch != null) {
+                        builder.append(parseMarkdownAndHtmlToSpannable(context, divMatch.groupValues[1], baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                    } else {
+                        // Empty or unclosed div tag, just ignore it
+                    }
+                }
+                matchedTextLower.startsWith("</div") -> {
+                    // Ignore standalone closing div
                 }
                 matchedTextLower.startsWith("http") -> {
                     val start = builder.length

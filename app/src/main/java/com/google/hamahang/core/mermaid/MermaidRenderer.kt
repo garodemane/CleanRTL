@@ -37,30 +37,36 @@ object MermaidRenderer {
                 <script src="file:///android_asset/mermaid/mermaid.min.js"></script>
                 <script>
                     mermaid.initialize({
-                        startOnLoad: false,
+                        startOnLoad: true,
                         theme: '$mermaidTheme',
                         securityLevel: 'loose'
                     });
                     
                     window.onload = function() {
-                        try {
-                            var container = document.getElementById('mermaid-container');
-                            var cleanCodeText = `${cleanCode.replace("`", "\\`").replace("$", "\\$")}`;
-                            mermaid.render('mermaid-svg', cleanCodeText, function(svgCode) {
-                                container.innerHTML = svgCode;
-                                setTimeout(function() {
-                                    var width = container.scrollWidth || 500;
-                                    var height = container.scrollHeight || 300;
+                        // wait a bit for mermaid to process the pre tag
+                        setTimeout(function() {
+                            try {
+                                var container = document.getElementById('mermaid-container');
+                                var svgs = document.getElementsByTagName('svg');
+                                if (svgs.length > 0) {
+                                    var svg = svgs[0];
+                                    var rect = svg.getBoundingClientRect();
+                                    var width = rect.width || container.scrollWidth || 500;
+                                    var height = rect.height || container.scrollHeight || 300;
                                     if (window.AndroidInterface) {
-                                        window.AndroidInterface.onRenderComplete(width, height);
+                                        window.AndroidInterface.onRenderComplete(Math.ceil(width), Math.ceil(height));
                                     }
-                                }, 100);
-                            });
-                        } catch (err) {
-                            if (window.AndroidInterface) {
-                                window.AndroidInterface.onError(err.message);
+                                } else {
+                                    if (window.AndroidInterface) {
+                                        window.AndroidInterface.onError("No SVG element found after rendering.");
+                                    }
+                                }
+                            } catch (err) {
+                                if (window.AndroidInterface) {
+                                    window.AndroidInterface.onError("JS Error: " + err.message);
+                                }
                             }
-                        }
+                        }, 500); // wait 500ms for mermaid to finish
                     };
                 </script>
                 <style>
@@ -69,16 +75,17 @@ object MermaidRenderer {
                         margin: 0;
                         padding: 16px;
                         overflow: hidden;
+                        display: inline-block;
                     }
                     #mermaid-container {
                         display: inline-block;
-                        width: auto;
-                        height: auto;
                     }
                 </style>
             </head>
             <body>
-                <div id="mermaid-container"></div>
+                <div id="mermaid-container">
+                    <pre class="mermaid">$cleanCode</pre>
+                </div>
             </body>
             </html>
         """.trimIndent()
@@ -90,6 +97,7 @@ object MermaidRenderer {
         class WebAppInterface {
             @JavascriptInterface
             fun onRenderComplete(width: Int, height: Int) {
+                android.util.Log.d("MermaidRenderer", "onRenderComplete: width=$width, height=$height")
                 Handler(Looper.getMainLooper()).post {
                     try {
                         val w = width + 40
@@ -105,18 +113,17 @@ object MermaidRenderer {
                         webView.draw(canvas)
                         deferred.complete(bitmap)
                     } catch (e: Exception) {
+                        android.util.Log.e("MermaidRenderer", "Error drawing bitmap: ${e.message}")
                         deferred.complete(null)
-                    } finally {
-                        webView.destroy()
                     }
                 }
             }
 
             @JavascriptInterface
             fun onError(error: String) {
+                android.util.Log.e("MermaidRenderer", "onError from JS: $error")
                 Handler(Looper.getMainLooper()).post {
                     deferred.complete(null)
-                    webView.destroy()
                 }
             }
         }
@@ -129,11 +136,12 @@ object MermaidRenderer {
                 request: android.webkit.WebResourceRequest?,
                 error: android.webkit.WebResourceError?
             ) {
+                android.util.Log.e("MermaidRenderer", "WebView Error: ${error?.description}")
                 deferred.complete(null)
-                webView.destroy()
             }
         }
 
+        android.util.Log.d("MermaidRenderer", "Loading HTML into WebView...")
         webView.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null)
 
         // Set a timeout of 8 seconds to prevent hanging if offline or if CDN is unreachable
@@ -142,8 +150,12 @@ object MermaidRenderer {
         }
         
         if (result == null) {
-            webView.destroy()
+            android.util.Log.e("MermaidRenderer", "renderToBitmap timed out or failed.")
+        } else {
+            android.util.Log.d("MermaidRenderer", "renderToBitmap success.")
         }
+        
+        webView.destroy()
         result
     }
 }
