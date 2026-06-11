@@ -248,6 +248,64 @@ object NativePdfExporter {
                 continue
             }
 
+            // 4. Block-level image: ![alt](url) or [![alt](imgUrl)](linkUrl) as sole content of a line
+            val cleanCodeBlockTrimForImg = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            val imgBlockMatch = Regex("^!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)$").find(cleanCodeBlockTrimForImg)
+            val imgLinkBlockMatch = Regex("^\\[!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)\\]\\(([^)\\s]+)\\)$").find(cleanCodeBlockTrimForImg)
+            val blockImgUrl: String? = when {
+                imgLinkBlockMatch != null -> imgLinkBlockMatch.groupValues[2].trim()
+                imgBlockMatch != null -> imgBlockMatch.groupValues[2].trim()
+                else -> null
+            }
+            val blockImgAlt: String = when {
+                imgLinkBlockMatch != null -> imgLinkBlockMatch.groupValues[1].ifEmpty { "image" }
+                imgBlockMatch != null -> imgBlockMatch.groupValues[1].ifEmpty { "image" }
+                else -> "image"
+            }
+            if (blockImgUrl != null) {
+                try {
+                    val conn = java.net.URL(blockImgUrl).openConnection() as java.net.HttpURLConnection
+                    conn.requestMethod = "GET"
+                    conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                    conn.connectTimeout = 6000
+                    conn.readTimeout = 6000
+                    val rawBitmap = android.graphics.BitmapFactory.decodeStream(conn.inputStream)
+                    if (rawBitmap != null) {
+                        val maxW = printableWidth
+                        val scale = if (rawBitmap.width > maxW) maxW / rawBitmap.width.toFloat() else 1f
+                        val drawW = rawBitmap.width * scale
+                        val drawH = rawBitmap.height * scale
+                        if (yOffset + drawH > pageHeight - margin) {
+                            pdfDocument.finishPage(currentPage)
+                            currentPageNumber++
+                            pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                            currentPage = pdfDocument.startPage(pageInfo)
+                            canvas = currentPage.canvas
+                            yOffset = margin
+                        }
+                        val left = margin + (printableWidth - drawW) / 2f
+                        val destRect = android.graphics.RectF(left, yOffset, left + drawW, yOffset + drawH)
+                        canvas.drawBitmap(rawBitmap, null, destRect, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+                        yOffset += drawH + baseFontSize * 0.5f
+                        rawBitmap.recycle()
+                    } else {
+                        textPaint.textSize = baseFontSize; textPaint.typeface = regularTypeface; textPaint.color = Color.DKGRAY
+                        val fallback = SpannableStringBuilder("\uD83D\uDDBC\uFE0F $blockImgAlt")
+                        val fl = StaticLayout.Builder.obtain(fallback, 0, fallback.length, textPaint, printableWidth.toInt()).setAlignment(Layout.Alignment.ALIGN_CENTER).build()
+                        canvas.save(); canvas.translate(margin, yOffset); fl.draw(canvas); canvas.restore()
+                        yOffset += fl.height + baseFontSize * 0.3f
+                    }
+                } catch (_: Exception) {
+                    textPaint.textSize = baseFontSize; textPaint.typeface = regularTypeface; textPaint.color = Color.DKGRAY
+                    val fallback = SpannableStringBuilder("\uD83D\uDDBC\uFE0F $blockImgAlt")
+                    val fl = StaticLayout.Builder.obtain(fallback, 0, fallback.length, textPaint, printableWidth.toInt()).setAlignment(Layout.Alignment.ALIGN_CENTER).build()
+                    canvas.save(); canvas.translate(margin, yOffset); fl.draw(canvas); canvas.restore()
+                    yOffset += fl.height + baseFontSize * 0.3f
+                }
+                idx++
+                continue
+            }
+
             // Extract bidi override mark if present at the start of the paragraph
             val bidiPrefix = when {
                 paragraph.startsWith("\u200F") -> "\u200F"
@@ -936,36 +994,106 @@ object NativePdfExporter {
         fun toSub(s: String) = s.map { subMap[it] ?: it.toString() }.joinToString("")
 
         var s = latex
-        s = s.replace(Regex("\\\\frac\\{([^}]*)\\}\\{([^}]*)\\}")) { m -> "${m.groupValues[1]}/${m.groupValues[2]}" }
-        s = s.replace(Regex("\\\\sqrt\\{([^}]*)\\}")) { m -> "\u221A${m.groupValues[1]}" }
-        s = s.replace("\\int", "\u222B")
-        s = s.replace("\\infty", "\u221E")
-        s = s.replace("\\sqrt", "\u221A")
-        s = s.replace("\\pi", "\u03C0")
-        s = s.replace("\\pm", "\u00B1")
-        s = s.replace("\\mp", "\u2213")
-        s = s.replace("\\alpha", "\u03B1").replace("\\beta", "\u03B2").replace("\\gamma", "\u03B3")
-        s = s.replace("\\delta", "\u03B4").replace("\\sigma", "\u03C3")
-        s = s.replace("\\theta", "\u03B8").replace("\\lambda", "\u03BB").replace("\\mu", "\u03BC")
-        s = s.replace("\\leq", "\u2264").replace("\\geq", "\u2265").replace("\\neq", "\u2260")
-        s = s.replace("\\approx", "\u2248").replace("\\sum", "\u2211")
-        s = s.replace("\\times", "\u00D7").replace("\\cdot", "\u22C5")
-        s = s.replace("\\div", "\u00F7")
-        s = s.replace("\\rightarrow", "\u2192").replace("\\Rightarrow", "\u21D2")
+
+        // Step 1: Remove formatting helpers
         s = s.replace("\\left", "").replace("\\right", "")
         s = s.replace("\\{", "{").replace("\\}", "}")
-        s = s.replace("\\,", " ")
+        s = s.replace("\\,", " ").replace("\\!", "").replace("\\;", " ").replace("\\:", " ")
+        s = s.replace("\\\\", "\n") // LaTeX line break
 
-        s = s.replace(Regex("\\^\\{([^}]*)\\}")) { m -> toSup(m.groupValues[1]) }
+        // Step 2: Handle \frac{num}{den} → num/den  (iterative for nested)
+        var prev = ""
+        while (prev != s) {
+            prev = s
+            s = s.replace(Regex("\\\\frac\\{([^{}]*)\\}\\{([^{}]*)\\}")) { m -> "(${m.groupValues[1]})/(${m.groupValues[2]})" }
+        }
+
+        // Step 3: Handle \sqrt{...}
+        s = s.replace(Regex("\\\\sqrt\\{([^}]*)\\}")) { m -> "\u221A(${m.groupValues[1]})" }
+        s = s.replace("\\sqrt", "\u221A")
+
+        // Step 4: Process ^{...} and _{...} BEFORE substituting \infty etc.
+        // because the chars inside braces may themselves be LaTeX like \infty
+        fun latexSymbolToStr(sym: String): String = when(sym.trim()) {
+            "\\infty", "infty" -> "\u221E"
+            "\\alpha" -> "\u03B1"; "\\beta" -> "\u03B2"; "\\gamma" -> "\u03B3"
+            "\\delta" -> "\u03B4"; "\\sigma" -> "\u03C3"; "\\theta" -> "\u03B8"
+            "\\pi" -> "\u03C0"; "\\mu" -> "\u03BC"; "\\lambda" -> "\u03BB"
+            "\\tau" -> "\u03C4"; "\\xi" -> "\u03BE"; "\\zeta" -> "\u03B6"
+            "\\eta" -> "\u03B7"; "\\epsilon" -> "\u03B5"; "\\varepsilon" -> "\u03B5"
+            "\\rho" -> "\u03C1"; "\\psi" -> "\u03C8"; "\\phi" -> "\u03C6"; "\\omega" -> "\u03C9"
+            else -> sym
+        }
+
+        s = s.replace(Regex("\\^\\{([^}]*)\\}")) { m ->
+            val inner = latexSymbolToStr(m.groupValues[1])
+            toSup(inner)
+        }
         s = s.replace(Regex("\\^([0-9a-zA-Z+\\-])")) { m -> toSup(m.groupValues[1]) }
-        s = s.replace(Regex("_\\{([^}]*)\\}")) { m -> toSub(m.groupValues[1]) }
+        s = s.replace(Regex("_\\{([^}]*)\\}")) { m ->
+            val inner = latexSymbolToStr(m.groupValues[1])
+            toSub(inner)
+        }
         s = s.replace(Regex("_([0-9a-zA-Z])")) { m -> toSub(m.groupValues[1]) }
-        
-        // Final cleanup for dangling braces
-        s = s.replace("_{", "_").replace("^{", "^").replace("}", "")
-        
+
+        // Step 5: Replace remaining LaTeX symbols with unicode
+        s = s.replace("\\int", "\u222B").replace("\\oint", "\u222E")
+        s = s.replace("\\infty", "\u221E")
+        s = s.replace("\\pi", "\u03C0").replace("\\Pi", "\u03A0")
+        s = s.replace("\\pm", "\u00B1").replace("\\mp", "\u2213")
+        s = s.replace("\\alpha", "\u03B1").replace("\\beta", "\u03B2").replace("\\gamma", "\u03B3")
+        s = s.replace("\\delta", "\u03B4").replace("\\Delta", "\u0394")
+        s = s.replace("\\sigma", "\u03C3").replace("\\Sigma", "\u03A3")
+        s = s.replace("\\theta", "\u03B8").replace("\\Theta", "\u0398")
+        s = s.replace("\\lambda", "\u03BB").replace("\\Lambda", "\u039B")
+        s = s.replace("\\mu", "\u03BC").replace("\\nu", "\u03BD")
+        s = s.replace("\\tau", "\u03C4").replace("\\xi", "\u03BE")
+        s = s.replace("\\zeta", "\u03B6").replace("\\eta", "\u03B7")
+        s = s.replace("\\epsilon", "\u03B5").replace("\\varepsilon", "\u03B5")
+        s = s.replace("\\rho", "\u03C1").replace("\\psi", "\u03C8")
+        s = s.replace("\\phi", "\u03C6").replace("\\varphi", "\u03C6")
+        s = s.replace("\\omega", "\u03C9").replace("\\Omega", "\u03A9")
+        s = s.replace("\\chi", "\u03C7").replace("\\kappa", "\u03BA")
+        s = s.replace("\\leq", "\u2264").replace("\\geq", "\u2265").replace("\\neq", "\u2260")
+        s = s.replace("\\le", "\u2264").replace("\\ge", "\u2265").replace("\\ne", "\u2260")
+        s = s.replace("\\approx", "\u2248").replace("\\equiv", "\u2261").replace("\\propto", "\u221D")
+        s = s.replace("\\sum", "\u2211").replace("\\prod", "\u220F")
+        s = s.replace("\\times", "\u00D7").replace("\\cdot", "\u22C5").replace("\\div", "\u00F7")
+        s = s.replace("\\rightarrow", "\u2192").replace("\\leftarrow", "\u2190")
+        s = s.replace("\\Rightarrow", "\u21D2").replace("\\Leftarrow", "\u21D0")
+        s = s.replace("\\leftrightarrow", "\u2194").replace("\\Leftrightarrow", "\u21D4")
+        s = s.replace("\\to", "\u2192").replace("\\gets", "\u2190")
+        s = s.replace("\\partial", "\u2202").replace("\\nabla", "\u2207")
+        s = s.replace("\\forall", "\u2200").replace("\\exists", "\u2203")
+        s = s.replace("\\in", "\u2208").replace("\\notin", "\u2209")
+        s = s.replace("\\subset", "\u2282").replace("\\supset", "\u2283")
+        s = s.replace("\\subseteq", "\u2286").replace("\\supseteq", "\u2287")
+        s = s.replace("\\cup", "\u222A").replace("\\cap", "\u2229")
+        s = s.replace("\\emptyset", "\u2205").replace("\\varnothing", "\u2205")
+        s = s.replace("\\land", "\u2227").replace("\\lor", "\u2228").replace("\\neg", "\u00AC")
+        s = s.replace("\\lfloor", "\u230A").replace("\\rfloor", "\u230B")
+        s = s.replace("\\lceil", "\u2308").replace("\\rceil", "\u2309")
+        s = s.replace("\\infty", "\u221E")
+        s = s.replace("\\mid", "\u2223").replace("\\parallel", "\u2225")
+        s = s.replace("\\perp", "\u22A5").replace("\\angle", "\u2220")
+        s = s.replace("\\therefore", "\u2234").replace("\\because", "\u2235")
+        s = s.replace("\\circ", "\u2218").replace("\\bullet", "\u2022")
+        s = s.replace("\\oplus", "\u2295").replace("\\otimes", "\u2297")
+        s = s.replace("\\gg", "\u226B").replace("\\ll", "\u226A")
+        s = s.replace("\\sim", "\u223C").replace("\\simeq", "\u2243")
+        s = s.replace("\\langle", "\u27E8").replace("\\rangle", "\u27E9")
+        s = s.replace("\\hbar", "\u210F").replace("\\ell", "\u2113")
+        s = s.replace("\\Re", "\u211C").replace("\\Im", "\u2111")
+
+        // Step 6: Clean up remaining LaTeX backslash commands (unknown ones)
+        s = s.replace(Regex("\\\\[a-zA-Z]+"), "")
+
+        // Step 7: Clean up remaining lone braces
+        s = s.replace("{", "").replace("}", "")
+
         return s
     }
+
 
     private enum class TableColumnAlignment {
         LEFT, CENTER, RIGHT
@@ -1553,10 +1681,11 @@ object NativePdfExporter {
                     builder.setSpan(android.text.style.URLSpan("mailto:$matchedTextClean"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("<font") || matchedTextLower.contains("font") -> {
+                    val fontClean = matchedTextClean.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     val fontRegex = Regex("(?is)<[\\s\\u00A0]*font([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>")
-                    val fontMatch = fontRegex.matchEntire(matchedTextClean)
+                    val fontMatch = fontRegex.find(fontClean)
                     if (fontMatch != null) {
-                        val attrsStr = fontMatch.groupValues[1]
+                        val attrsStr = fontMatch.groupValues[1].replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                         val innerText = fontMatch.groupValues[2]
 
                         var color: Int? = null
@@ -1564,8 +1693,8 @@ object NativePdfExporter {
 
                         val colorMatch = Regex("(?i)color[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
                         if (colorMatch != null) {
-                            val colorValue = cleanQuotes(colorMatch.groupValues[1])
-                            color = parseHtmlColorToInt(colorValue)
+                            val colorRaw = colorMatch.groupValues[1].trim().replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+                            color = parseHtmlColorToInt(cleanQuotes(colorRaw))
                         }
 
                         val sizeMatch = Regex("(?i)size[\\s\\u00A0]*=[\\s\\u00A0]*([^\\s\\u00A0>]+|'[^']*'|\"[^\"]*\")").find(attrsStr)
@@ -1588,10 +1717,11 @@ object NativePdfExporter {
                     }
                 }
                 matchedTextLower.startsWith("<span") || matchedTextLower.contains("span") -> {
+                    val spanClean = matchedTextClean.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     val spanRegex = Regex("(?is)<[\\s\\u00A0]*span([^>]*)>(.*?)<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>")
-                    val spanMatch = spanRegex.matchEntire(matchedTextClean)
+                    val spanMatch = spanRegex.find(spanClean)
                     if (spanMatch != null) {
-                        val attrsStr = spanMatch.groupValues[1]
+                        val attrsStr = spanMatch.groupValues[1].replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                         val innerText = spanMatch.groupValues[2]
 
                         var color: Int? = null
