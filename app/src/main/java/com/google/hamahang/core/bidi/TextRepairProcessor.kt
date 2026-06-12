@@ -155,7 +155,9 @@ object TextRepairProcessor {
         }
 
         // 3. Strip numbered list prefix (e.g. "1. ", "12. ")
-        val numberedListMatch = Regex("^\\d+\\.\\s+(.*)").matchEntire(cleanStr)
+        // Only strip ASCII digits. If the user used Persian digits (e.g. "۱. "), keep it
+        // so it immediately triggers RTL direction based on explicit language choice!
+        val numberedListMatch = Regex("^[0-9]+\\.\\s+(.*)").matchEntire(cleanStr)
         if (numberedListMatch != null) {
             cleanStr = numberedListMatch.groupValues[1].trimStart()
         }
@@ -169,28 +171,33 @@ object TextRepairProcessor {
         // 4b. Strip HTML tags to ensure correct directional analysis for text starting with HTML markup
         val directionAnalysisStr = cleanStr.replace(Regex("<[^>]*>"), "")
 
-        // 5. Resolve based on the first strong character (official Unicode Standard Annex #9)
-        for (char in directionAnalysisStr) {
-            val charStr = char.toString()
-            if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
-                return true
-            } else if (STRONG_LATIN_PATTERN.matcher(charStr).matches()) {
-                return false
-            }
-        }
-
-        // 6. Fallback weight counting if no strong characters exist
+        // 5. Resolve based on the first strong character, but use weight counting to override
+        // if a Persian paragraph starts with an English word (a very common scenario).
+        var firstStrongIsRtl: Boolean? = null
         var rtlCount = 0
         var ltrCount = 0
+
         for (char in directionAnalysisStr) {
             val charStr = char.toString()
             if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
+                if (firstStrongIsRtl == null) firstStrongIsRtl = true
                 rtlCount++
             } else if (STRONG_LATIN_PATTERN.matcher(charStr).matches()) {
+                if (firstStrongIsRtl == null) firstStrongIsRtl = false
                 ltrCount++
             }
         }
-        return rtlCount >= ltrCount
+
+        if (firstStrongIsRtl == true) {
+            return true // Started with Persian, definitely a Persian paragraph
+        } else if (firstStrongIsRtl == false) {
+            // Started with Latin. If Persian characters outnumber Latin, it's a Persian
+            // paragraph that happens to start with an English word (e.g. "CPU یک ...").
+            return rtlCount > ltrCount
+        }
+
+        // If no strong characters exist, default to RTL in a Persian-first app
+        return true
     }
 
 
