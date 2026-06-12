@@ -33,6 +33,7 @@ object NativePdfExporter {
         title: String = "CleanRTL Document",
         baseFontSize: Float = 12f,
         mermaidBitmaps: Map<String, android.graphics.Bitmap> = emptyMap(),
+        mathBitmaps: Map<String, android.graphics.Bitmap> = emptyMap(),
         isJustified: Boolean = false
     ) {
         val pdfDocument = PdfDocument()
@@ -120,6 +121,7 @@ object NativePdfExporter {
                     yOffset = drawBlockMath(
                         canvas, mathBlockLines, textPaint, serifItalicTypeface,
                         margin, yOffset, printableWidth, pageHeight - margin,
+                        mathBitmaps,
                         onNewPage = {
                             pdfDocument.finishPage(currentPage)
                             currentPageNumber++
@@ -215,6 +217,7 @@ object NativePdfExporter {
                     yOffset = drawBlockMath(
                         canvas, listOf(cleanFormula), textPaint, serifItalicTypeface,
                         margin, yOffset, printableWidth, pageHeight - margin,
+                        mathBitmaps,
                         onNewPage = {
                             pdfDocument.finishPage(currentPage)
                             currentPageNumber++
@@ -750,6 +753,7 @@ object NativePdfExporter {
             drawBlockMath(
                 canvas, mathBlockLines, textPaint, serifItalicTypeface,
                 margin, yOffset, printableWidth, pageHeight - margin,
+                mathBitmaps,
                 onNewPage = { canvas }
             )
         }
@@ -2149,11 +2153,35 @@ object NativePdfExporter {
         yStart: Float,
         width: Float,
         maxHeight: Float,
+        mathBitmaps: Map<String, android.graphics.Bitmap> = emptyMap(),
         onNewPage: () -> Canvas
     ): Float {
         var currentCanvas = canvas
         var yOffset = yStart
         val rawFormulaText = lines.joinToString("\n").replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+        
+        // 1. Try to render the precompiled bitmap first
+        val bitmap = mathBitmaps[rawFormulaText]
+        if (bitmap != null) {
+            val scale = (width / bitmap.width).coerceAtMost(1f)
+            val scaledWidth = bitmap.width * scale
+            val scaledHeight = bitmap.height * scale
+            val blockHeight = scaledHeight + 10f
+
+            if (yOffset + blockHeight > maxHeight) {
+                currentCanvas = onNewPage()
+                yOffset = margin
+            }
+
+            // Draw centered
+            val xOffset = margin + (width - scaledWidth) / 2f
+            val destRect = RectF(xOffset, yOffset + 5f, xOffset + scaledWidth, yOffset + 5f + scaledHeight)
+            currentCanvas.drawBitmap(bitmap, null, destRect, null)
+            
+            return yOffset + blockHeight
+        }
+
+        // 2. Fallback to plain text drawing
         val formulaText = replaceLatexWithUnicode(rawFormulaText)
 
         paint.apply {

@@ -557,8 +557,62 @@ fun repairText(input: String): String {
                         mermaidBitmaps["__mermaid_idx_$blockIndex"] = bitmap
                     }
                 }
+                
+                // 3. Pre-compile all math blocks to bitmaps
+                val mathBlocks = mutableListOf<String>()
+                var inMath = false
+                val currentMathBlock = java.lang.StringBuilder()
+                for (paragraph in paragraphs) {
+                    val trimmed = paragraph.trim()
+                    val cleanTrimmed = trimmed
+                        .replace(Regex("^[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+"), "")
+                        .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]+$"), "")
+                        .trim()
+                    if (cleanTrimmed == "$$") {
+                        if (!inMath) {
+                            inMath = true
+                            currentMathBlock.clear()
+                        } else {
+                            inMath = false
+                            val cleanFormula = currentMathBlock.toString()
+                                .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                            if (cleanFormula.isNotBlank()) mathBlocks.add(cleanFormula)
+                        }
+                    } else if (inMath) {
+                        if (currentMathBlock.isNotEmpty()) currentMathBlock.append("\n")
+                        currentMathBlock.append(paragraph)
+                    } else if (cleanTrimmed.startsWith("$$") && cleanTrimmed.endsWith("$$") && cleanTrimmed.length > 2) {
+                        val cleanFormula = cleanTrimmed.substring(2, cleanTrimmed.length - 2)
+                            .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                        if (cleanFormula.isNotBlank()) mathBlocks.add(cleanFormula)
+                    } else if (cleanTrimmed.startsWith("$$")) {
+                        inMath = true
+                        currentMathBlock.clear()
+                        val content = cleanTrimmed.substring(2)
+                        if (content.isNotEmpty()) currentMathBlock.append(content)
+                    } else if (inMath && cleanTrimmed.endsWith("$$")) {
+                        inMath = false
+                        val content = cleanTrimmed.substring(0, cleanTrimmed.length - 2)
+                        if (content.isNotEmpty()) {
+                            if (currentMathBlock.isNotEmpty()) currentMathBlock.append("\n")
+                            currentMathBlock.append(content)
+                        }
+                        val cleanFormula = currentMathBlock.toString()
+                            .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                        if (cleanFormula.isNotBlank()) mathBlocks.add(cleanFormula)
+                    }
+                }
+                
+                val mathBitmaps = mutableMapOf<String, android.graphics.Bitmap>()
+                for ((blockIndex, block) in mathBlocks.withIndex()) {
+                    val bitmap = com.google.hamahang.core.pdf.MathRenderer.renderToBitmap(context, block)
+                    if (bitmap != null) {
+                        mathBitmaps[block] = bitmap
+                        mathBitmaps["__math_idx_$blockIndex"] = bitmap
+                    }
+                }
 
-                // 3. Render and save the PDF
+                // 4. Render and save the PDF
                 val downloadsFolder = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val pdfFile = getUniqueFile(downloadsFolder, "CleanRTL_Corrected", "pdf")
                 val outputStream = FileOutputStream(pdfFile)
@@ -570,6 +624,7 @@ fun repairText(input: String): String {
                     title = "CleanRTL Document",
                     baseFontSize = fontSizeSp.toFloat(),
                     mermaidBitmaps = mermaidBitmaps,
+                    mathBitmaps = mathBitmaps,
                     isJustified = isJustified
                 )
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
