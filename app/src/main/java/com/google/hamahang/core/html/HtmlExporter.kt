@@ -1132,6 +1132,39 @@ object HtmlExporter {
 
         val encodedInput = encodeEscapes(input)
         var res = encodedInput
+        // --- PROTECT MARKDOWN LINKS FROM BARE URL PARSING ---
+        val protectedLinks = mutableListOf<String>()
+        // Protect reference links
+        res = res.replace(Regex("!?\\[([^\\]]*)\\]\\[([^\\]]*)\\]")) { match ->
+            val placeholder = "\uE011${protectedLinks.size}\uE011"
+            protectedLinks.add(match.value)
+            placeholder
+        }
+        // Protect inline links and images
+        res = res.replace(Regex("!?\\[([^\\]]*)\\]\\([^\\)]+?\\)")) { match ->
+            val placeholder = "\uE011${protectedLinks.size}\uE011"
+            protectedLinks.add(match.value)
+            placeholder
+        }
+
+        // --- BARE URLS AND AUTOLINKS ---
+        // 2. Autolinks: <https://url>
+        res = res.replace(Regex("<(https?://[^>\\s]+)>"), "<a href=\"$1\" target=\"_blank\" style=\"color: var(--accent-color); text-decoration: underline;\">$1</a>")
+
+        // 3. Auto-emails: <email@domain.com>
+        res = res.replace(Regex("<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})>"), "<a href=\"mailto:$1\" style=\"color: var(--accent-color); text-decoration: underline;\">$1</a>")
+
+        // 3.5. Bare URLs: https://url
+        res = res.replace(Regex("(?<![\"'])(https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+)"), "<a href=\"$1\" target=\"_blank\" style=\"color: var(--accent-color); text-decoration: underline;\">$1</a>")
+
+        // 3.6. Bare emails: email@domain.com
+        res = res.replace(Regex("(?<![\"'])([a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,})(?![\\w>])"), "<a href=\"mailto:$1\" style=\"color: var(--accent-color); text-decoration: underline;\">$1</a>")
+
+        // --- RESTORE PROTECTED LINKS ---
+        res = res.replace(Regex("\uE011(\\d+)\uE011")) { match ->
+            val index = match.groupValues[1].toInt()
+            protectedLinks[index]
+        }
         
         // 1. Reference-style links: [text][label]
         res = res.replace(Regex("\\[([^\\]]+?)\\]\\[([^\\]]*?)\\]"), { match ->
@@ -1146,12 +1179,6 @@ object HtmlExporter {
                 match.value
             }
         })
-
-        // 2. Autolinks: <https://url>
-        res = res.replace(Regex("<(https?://[^>\\s]+)>"), "<a href=\"$1\" target=\"_blank\" style=\"color: var(--accent-color); text-decoration: underline;\">$1</a>")
-
-        // 3. Auto-emails: <email@domain.com>
-        res = res.replace(Regex("<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})>"), "<a href=\"mailto:$1\" style=\"color: var(--accent-color); text-decoration: underline;\">$1</a>")
 
         // 11.0. Inline image links: [![alt](img)](url)
         res = res.replace(Regex("\\[!\\[([^\\]]*)\\]\\([^\\)]+?\\)\\]\\(([^\\)]+?)\\)")) { match ->
