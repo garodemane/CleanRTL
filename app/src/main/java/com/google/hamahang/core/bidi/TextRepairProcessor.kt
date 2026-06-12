@@ -171,29 +171,14 @@ object TextRepairProcessor {
         // 4b. Strip HTML tags to ensure correct directional analysis for text starting with HTML markup
         val directionAnalysisStr = cleanStr.replace(Regex("<[^>]*>"), "")
 
-        // 5. Resolve based on the first strong character, but use weight counting to override
-        // if a Persian paragraph starts with an English word (a very common scenario).
-        var firstStrongIsRtl: Boolean? = null
-        var rtlCount = 0
-        var ltrCount = 0
-
+        // 5. Resolve based on the first strong character (official Unicode Standard Annex #9)
         for (char in directionAnalysisStr) {
             val charStr = char.toString()
             if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
-                if (firstStrongIsRtl == null) firstStrongIsRtl = true
-                rtlCount++
+                return true
             } else if (STRONG_LATIN_PATTERN.matcher(charStr).matches()) {
-                if (firstStrongIsRtl == null) firstStrongIsRtl = false
-                ltrCount++
+                return false
             }
-        }
-
-        if (firstStrongIsRtl == true) {
-            return true // Started with Persian, definitely a Persian paragraph
-        } else if (firstStrongIsRtl == false) {
-            // Started with Latin. If Persian characters outnumber Latin, it's a Persian
-            // paragraph that happens to start with an English word (e.g. "CPU یک ...").
-            return rtlCount > ltrCount
         }
 
         // If no strong characters exist, default to RTL in a Persian-first app
