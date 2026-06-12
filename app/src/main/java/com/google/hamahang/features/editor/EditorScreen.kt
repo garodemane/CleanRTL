@@ -612,12 +612,41 @@ fun repairText(input: String): String {
                     }
                 }
 
-                // 4. Render and save the PDF
-                val downloadsFolder = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                // 4. Pre-download all image bitmaps
+                val imageBitmaps = mutableMapOf<String, android.graphics.Bitmap>()
+                val imgRegex = Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")
+                val imageMatches = imgRegex.findAll(correctedText)
+                for (match in imageMatches) {
+                    val rawUrl = match.groupValues[2].trim()
+                    val url = rawUrl.replace("^[\"']".toRegex(), "").replace("[\"']$".toRegex(), "")
+                    if (!imageBitmaps.containsKey(url)) {
+                        try {
+                            val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                                    val loader = coil.ImageLoader(context)
+                                    val request = coil.request.ImageRequest.Builder(context)
+                                        .data(url)
+                                        .allowHardware(false)
+                                        .build()
+                                    val result = (loader.execute(request) as? coil.request.SuccessResult)?.drawable
+                                    (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                                }
+                            }
+                            if (bitmap != null) {
+                                imageBitmaps[url] = bitmap
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("PdfExport", "Failed to load image: $url", e)
+                        }
+                    }
+                }
+
+                // 5. Render and save the PDF
+                val downloadsFolder = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                 val pdfFile = getUniqueFile(downloadsFolder, "CleanRTL_Corrected", "pdf")
-                val outputStream = FileOutputStream(pdfFile)
+                val outputStream = java.io.FileOutputStream(pdfFile)
                 
-                NativePdfExporter.exportToPdf(
+                com.google.hamahang.core.pdf.NativePdfExporter.exportToPdf(
                     context = context,
                     text = correctedText,
                     outputStream = outputStream,
@@ -625,6 +654,7 @@ fun repairText(input: String): String {
                     baseFontSize = fontSizeSp.toFloat(),
                     mermaidBitmaps = mermaidBitmaps,
                     mathBitmaps = mathBitmaps,
+                    imageBitmaps = imageBitmaps,
                     isJustified = isJustified
                 )
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {

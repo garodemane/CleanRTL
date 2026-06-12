@@ -34,6 +34,7 @@ object NativePdfExporter {
         baseFontSize: Float = 12f,
         mermaidBitmaps: Map<String, android.graphics.Bitmap> = emptyMap(),
         mathBitmaps: Map<String, android.graphics.Bitmap> = emptyMap(),
+        imageBitmaps: Map<String, android.graphics.Bitmap> = emptyMap(),
         isJustified: Boolean = false
     ) {
         val pdfDocument = PdfDocument()
@@ -361,7 +362,8 @@ object NativePdfExporter {
                         baseFontSize * 1.05f,
                         boldTypeface,
                         italicTypeface,
-                        referenceMap
+                        referenceMap,
+                        imageBitmaps
                     )
                     
                     val headerPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -498,6 +500,7 @@ object NativePdfExporter {
                             boldTypeface = boldTypeface,
                             italicTypeface = italicTypeface,
                             isTableRtl = TextRepairProcessor.isParagraphRtl(cleanParagraph),
+                            imageBitmaps = imageBitmaps,
                             onNewPage = {
                                 pdfDocument.finishPage(currentPage)
                                 currentPageNumber++
@@ -633,7 +636,8 @@ object NativePdfExporter {
                 currentTextSize,
                 boldTypeface,
                 italicTypeface,
-                referenceMap
+                referenceMap,
+                imageBitmaps
             )
 
             // Setup Paint
@@ -785,7 +789,7 @@ object NativePdfExporter {
 
             for ((id, text) in footnotesMap) {
                 val fnText = "[$id] $text"
-                val spannedText = parseMarkdownAndHtmlToSpannable(context, fnText, baseFontSize * 0.8f, boldTypeface, italicTypeface, referenceMap)
+                val spannedText = parseMarkdownAndHtmlToSpannable(context, fnText, baseFontSize * 0.8f, boldTypeface, italicTypeface, referenceMap, imageBitmaps)
                 
                 val isRtl = TextRepairProcessor.isParagraphRtl(fnText)
                 val textLayoutBuilder = StaticLayout.Builder.obtain(
@@ -1202,6 +1206,7 @@ object NativePdfExporter {
         boldTypeface: Typeface,
         italicTypeface: Typeface,
         isTableRtl: Boolean,
+        imageBitmaps: Map<String, android.graphics.Bitmap>,
         onNewPage: () -> Canvas
     ): Float {
         var currentCanvas = canvas
@@ -1254,7 +1259,8 @@ object NativePdfExporter {
                     paint.textSize,
                     boldTypeface,
                     italicTypeface,
-                    emptyMap()
+                    emptyMap(),
+                    imageBitmaps
                 )
 
                 val isRtl = TextRepairProcessor.isParagraphRtl(cellText)
@@ -1356,7 +1362,8 @@ object NativePdfExporter {
         baseFontSize: Float,
         boldTypeface: Typeface,
         italicTypeface: Typeface,
-        referenceMap: Map<String, Pair<String, String?>> = emptyMap()
+        referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
+        imageBitmaps: Map<String, android.graphics.Bitmap> = emptyMap()
     ): Spanned {
         val escapeMap = listOf(
             "\\\\" to "\uE000",
@@ -1555,11 +1562,30 @@ object NativePdfExporter {
                     val imgMatch = imgRegex.find(matchedTextClean)
                     if (imgMatch != null) {
                         val altText = imgMatch.groupValues[1].ifEmpty { "image" }
-                        // ImageSpan doesn't render in StaticLayout on PDF canvas; show alt text
+                        val rawUrl = imgMatch.groupValues[2].trim()
+                        val url = cleanQuotes(rawUrl)
+                        val decodedUrl = decodeEscapesUnescaped(url)
+                        
                         val start = builder.length
-                        builder.append("\uD83D\uDDBC\uFE0F $altText")
-                        builder.setSpan(ForegroundColorSpan(Color.rgb(80, 80, 80)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        val bitmap = imageBitmaps[decodedUrl] ?: imageBitmaps[rawUrl]
+                        if (bitmap != null) {
+                            val drawable = android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
+                            // Scale down to a reasonable max width (e.g. 500px, but scaled by fontSize)
+                            val maxW = (baseFontSize * 30).coerceAtMost(500f)
+                            val scale = (maxW / bitmap.width).coerceAtMost(1f)
+                            val w = (bitmap.width * scale).toInt()
+                            val h = (bitmap.height * scale).toInt()
+                            drawable.setBounds(0, 0, w, h)
+                            
+                            val span = android.text.style.ImageSpan(drawable, android.text.style.DynamicDrawableSpan.ALIGN_BOTTOM)
+                            builder.append(" ") // placeholder for span
+                            builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        } else {
+                            // Fallback to text if not preloaded
+                            builder.append("\uD83D\uDDBC\uFE0F $altText")
+                            builder.setSpan(ForegroundColorSpan(Color.rgb(80, 80, 80)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
                     } else {
                         builder.append(matchedText)
                     }
