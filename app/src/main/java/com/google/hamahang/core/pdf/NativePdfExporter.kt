@@ -1542,17 +1542,39 @@ object NativePdfExporter {
                     builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("[![") && matchedTextLower.contains("](") -> {
-                    val imgLinkRegex = Regex("\\[!\\[([^\\]]*)\\]\\([^\\)]+?\\)\\]\\(([^\\)]+?)\\)")
+                    val imgLinkRegex = Regex("\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)")
                     val imgLinkMatch = imgLinkRegex.find(matchedTextClean)
                     if (imgLinkMatch != null) {
                         val altText = imgLinkMatch.groupValues[1].ifEmpty { "image" }
-                        val rawLinkUrl = imgLinkMatch.groupValues[2].trim()
-                        val linkUrl = cleanQuotes(decodeEscapesUnescaped(rawLinkUrl))
+                        val rawImgUrl = imgLinkMatch.groupValues[2].trim()
+                        val imgUrlParts = rawImgUrl.split(Regex("[\\s\\u00A0]+"))
+                        val imgUrl = cleanQuotes(imgUrlParts[0])
+                        val decodedImgUrl = decodeEscapesUnescaped(imgUrl)
+
+                        val rawLinkUrl = imgLinkMatch.groupValues[3].trim()
+                        val linkUrlParts = rawLinkUrl.split(Regex("[\\s\\u00A0]+"))
+                        val linkUrl = cleanQuotes(decodeEscapesUnescaped(linkUrlParts[0]))
+                        
                         val start = builder.length
-                        builder.append("\uD83D\uDDBC\uFE0F $altText")
-                        builder.setSpan(ForegroundColorSpan(Color.BLUE), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        builder.setSpan(android.text.style.URLSpan(linkUrl), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        val bitmap = imageBitmaps[decodedImgUrl] ?: imageBitmaps[imgUrl]
+                        if (bitmap != null) {
+                            val drawable = android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
+                            val maxW = (baseFontSize * 30).coerceAtMost(500f)
+                            val scale = (maxW / bitmap.width).coerceAtMost(1f)
+                            val w = (bitmap.width * scale).toInt()
+                            val h = (bitmap.height * scale).toInt()
+                            drawable.setBounds(0, 0, w, h)
+                            
+                            val span = android.text.style.ImageSpan(drawable, android.text.style.DynamicDrawableSpan.ALIGN_BOTTOM)
+                            builder.append(" ") // placeholder for span
+                            builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            builder.setSpan(android.text.style.URLSpan(linkUrl), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        } else {
+                            builder.append("\uD83D\uDDBC\uFE0F $altText")
+                            builder.setSpan(ForegroundColorSpan(Color.BLUE), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            builder.setSpan(android.text.style.URLSpan(linkUrl), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        }
                     } else {
                         builder.append(matchedText)
                     }
@@ -1563,11 +1585,12 @@ object NativePdfExporter {
                     if (imgMatch != null) {
                         val altText = imgMatch.groupValues[1].ifEmpty { "image" }
                         val rawUrl = imgMatch.groupValues[2].trim()
-                        val url = cleanQuotes(rawUrl)
+                        val urlParts = rawUrl.split(Regex("[\\s\\u00A0]+"))
+                        val url = cleanQuotes(urlParts[0])
                         val decodedUrl = decodeEscapesUnescaped(url)
                         
                         val start = builder.length
-                        val bitmap = imageBitmaps[decodedUrl] ?: imageBitmaps[rawUrl]
+                        val bitmap = imageBitmaps[decodedUrl] ?: imageBitmaps[url]
                         if (bitmap != null) {
                             val drawable = android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
                             // Scale down to a reasonable max width (e.g. 500px, but scaled by fontSize)

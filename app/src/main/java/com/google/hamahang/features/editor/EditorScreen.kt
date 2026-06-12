@@ -618,7 +618,8 @@ fun repairText(input: String): String {
                 val imageMatches = imgRegex.findAll(correctedText)
                 for (match in imageMatches) {
                     val rawUrl = match.groupValues[2].trim()
-                    val url = rawUrl.replace("^[\"']".toRegex(), "").replace("[\"']$".toRegex(), "")
+                    val urlParts = rawUrl.split(Regex("[\\s\\u00A0]+"))
+                    val url = urlParts[0].replace("^[\"']".toRegex(), "").replace("[\"']$".toRegex(), "")
                     if (!imageBitmaps.containsKey(url)) {
                         try {
                             val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
