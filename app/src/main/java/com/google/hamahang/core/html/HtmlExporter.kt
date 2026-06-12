@@ -1134,6 +1134,18 @@ object HtmlExporter {
         var res = encodedInput
         // --- PROTECT MARKDOWN LINKS FROM BARE URL PARSING ---
         val protectedLinks = mutableListOf<String>()
+        // Protect image-as-link (inline)
+        res = res.replace(Regex("\\[!\\[[^\\]]*\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)")) { match ->
+            val placeholder = "\uE011${protectedLinks.size}\uE011"
+            protectedLinks.add(match.value)
+            placeholder
+        }
+        // Protect image-as-link (reference)
+        res = res.replace(Regex("\\[!\\[[^\\]]*\\]\\([^\\)]+?\\)\\]\\[[^\\]]*\\]")) { match ->
+            val placeholder = "\uE011${protectedLinks.size}\uE011"
+            protectedLinks.add(match.value)
+            placeholder
+        }
         // Protect reference links
         res = res.replace(Regex("!?\\[([^\\]]*)\\]\\[([^\\]]*)\\]")) { match ->
             val placeholder = "\uE011${protectedLinks.size}\uE011"
