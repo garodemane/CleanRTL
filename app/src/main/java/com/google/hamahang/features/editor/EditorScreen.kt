@@ -12,6 +12,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -388,6 +392,29 @@ fun repairText(input: String): String {
     var activeTab by remember { mutableStateOf(0) }
     var fontSizeSp by remember { mutableStateOf(16) }
     var isJustified by remember { mutableStateOf(false) }
+
+    val editorScrollState = rememberScrollState()
+    val previewScrollState = rememberScrollState()
+
+    LaunchedEffect(editorScrollState.isScrollInProgress, previewScrollState.isScrollInProgress) {
+        if (editorScrollState.isScrollInProgress) {
+            snapshotFlow { editorScrollState.value }.collect { value ->
+                if (editorScrollState.maxValue > 0 && previewScrollState.maxValue > 0) {
+                    val progress = value.toFloat() / editorScrollState.maxValue.toFloat()
+                    val targetPreviewScroll = (progress * previewScrollState.maxValue).toInt()
+                    previewScrollState.scrollTo(targetPreviewScroll)
+                }
+            }
+        } else if (previewScrollState.isScrollInProgress) {
+            snapshotFlow { previewScrollState.value }.collect { value ->
+                if (previewScrollState.maxValue > 0 && editorScrollState.maxValue > 0) {
+                    val progress = value.toFloat() / previewScrollState.maxValue.toFloat()
+                    val targetEditorScroll = (progress * editorScrollState.maxValue).toInt()
+                    editorScrollState.scrollTo(targetEditorScroll)
+                }
+            }
+        }
+    }
 
     LaunchedEffect(rawText.text, enableNormalization) {
         correctedText = TextRepairProcessor.repairText(rawText.text, enableNormalization)
@@ -846,7 +873,8 @@ fun repairText(input: String): String {
                                             onValueChange = { rawText = it },
                                             textDirection = TextDirection.ContentOrRtl,
                                             fontSize = fontSizeSp,
-                                            uiFontScale = uiFontScale
+                                            uiFontScale = uiFontScale,
+                                            scrollState = editorScrollState
                                         )
                                     }
                                     Box(modifier = Modifier.weight(1f)) {
@@ -855,7 +883,8 @@ fun repairText(input: String): String {
                                             text = correctedText, 
                                             baseFontSize = fontSizeSp,
                                             uiFontScale = uiFontScale,
-                                            isJustified = isJustified
+                                            isJustified = isJustified,
+                                            scrollState = previewScrollState
                                         )
                                     }
                                 }
@@ -909,7 +938,8 @@ fun repairText(input: String): String {
                                             onValueChange = { rawText = it },
                                             textDirection = TextDirection.ContentOrRtl,
                                             fontSize = fontSizeSp,
-                                            uiFontScale = uiFontScale
+                                            uiFontScale = uiFontScale,
+                                            scrollState = editorScrollState
                                         )
                                         1 -> EditorPane(
                                             title = Loc.tr("output_label", currentLanguage),
@@ -925,7 +955,8 @@ fun repairText(input: String): String {
                                             text = correctedText, 
                                             baseFontSize = fontSizeSp,
                                             uiFontScale = uiFontScale,
-                                            isJustified = isJustified
+                                            isJustified = isJustified,
+                                            scrollState = previewScrollState
                                         )
                                     }
                                 }
@@ -1120,6 +1151,7 @@ fun MarkdownPreviewPane(
     baseFontSize: Int,
     uiFontScale: Float,
     isJustified: Boolean = false,
+    scrollState: ScrollState = rememberScrollState(),
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -1132,7 +1164,7 @@ fun MarkdownPreviewPane(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
         ) {
             Text(
                 text = title,
@@ -2671,6 +2703,7 @@ fun EditorPane(
     fontSize: Int,
     uiFontScale: Float,
     isReadOnly: Boolean = false,
+    scrollState: ScrollState = rememberScrollState(),
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -2690,7 +2723,7 @@ fun EditorPane(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
             ) {
                 BasicTextField(
                     value = value,
