@@ -673,20 +673,6 @@ fun repairText(input: String): String {
                         if (navigationTab == 0) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 IconButton(
-                                    onClick = { handlePrint() },
-                                    colors = IconButtonDefaults.iconButtonColors(
-                                        containerColor = Color.White.copy(alpha = 0.2f),
-                                        contentColor = Color.White
-                                    ),
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = PrinterIcon,
-                                        contentDescription = if (currentLanguage == AppLanguage.FA) "پرینت" else "Print",
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                                IconButton(
                                     onClick = { rawText = TextFieldValue("") },
                                     colors = IconButtonDefaults.iconButtonColors(
                                         containerColor = Color.White.copy(alpha = 0.2f),
