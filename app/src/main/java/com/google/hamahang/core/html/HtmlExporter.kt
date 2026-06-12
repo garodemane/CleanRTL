@@ -133,7 +133,7 @@ object HtmlExporter {
                     if (cleanLine.isNotEmpty()) {
                         mathLines.add(cleanLine)
                     }
-                    val fullFormula = mathLines.joinToString("\n")
+                    val fullFormula = mathLines.filter { it.isNotBlank() }.joinToString("\n")
                         .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                     htmlContent.append("<div class='block-math' dir='ltr'>\n\$\$\n$fullFormula\n\$\$\n</div>\n")
                     mathLines.clear()
@@ -545,7 +545,7 @@ object HtmlExporter {
 
         // Final math block fallback
         if (inMathBlock && mathLines.isNotEmpty()) {
-            val fullFormula = mathLines.joinToString("\n")
+            val fullFormula = mathLines.filter { it.isNotBlank() }.joinToString("\n")
                 .replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
             htmlContent.append("<div class='block-math' dir='ltr'>\n\$\$\n$fullFormula\n\$\$\n</div>\n")
         }

@@ -1289,7 +1289,7 @@ fun MarkdownPreviewPaneContents(
                 if (cleanLine.isNotEmpty()) {
                     mathLines.add(cleanLine)
                 }
-                val fullFormula = mathLines.joinToString("\n")
+                val fullFormula = mathLines.filter { it.isNotBlank() }.joinToString("\n")
                 ComposeMathBlock(formula = fullFormula, fontSize = (baseFontSize * 1.1).sp)
                 mathLines.clear()
                 inMathBlock = false

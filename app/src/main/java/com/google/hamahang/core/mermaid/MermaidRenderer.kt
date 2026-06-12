@@ -131,18 +131,22 @@ object MermaidRenderer {
                 android.util.Log.d("MermaidRenderer", "onRenderComplete: width=$width, height=$height")
                 Handler(Looper.getMainLooper()).post {
                     try {
-                        val w = width + 40
-                        val h = height + 40
-                        webView.measure(
-                            View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
-                            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY)
-                        )
-                        webView.layout(0, 0, w, h)
+                        val w = (width + 40).coerceAtMost(2000)
+                        val h = (height + 40).coerceAtMost(2000)
                         
-                        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                        val canvas = Canvas(bitmap)
+                        // Chromium has already composited the 2000x2000 WebView.
+                        // If we resize the WebView here and draw immediately, it will draw blank.
+                        // So we draw the existing 2000x2000 WebView into a full bitmap, then crop it.
+                        val fullBitmap = Bitmap.createBitmap(2000, 2000, Bitmap.Config.ARGB_8888)
+                        val canvas = Canvas(fullBitmap)
                         webView.draw(canvas)
-                        deferred.complete(bitmap)
+                        
+                        val croppedBitmap = Bitmap.createBitmap(fullBitmap, 0, 0, w, h)
+                        if (croppedBitmap != fullBitmap) {
+                            fullBitmap.recycle()
+                        }
+                        
+                        deferred.complete(croppedBitmap)
                     } catch (e: Exception) {
                         android.util.Log.e("MermaidRenderer", "Error drawing bitmap: ${e.message}")
                         deferred.complete(null)
