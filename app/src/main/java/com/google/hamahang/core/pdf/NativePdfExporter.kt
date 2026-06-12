@@ -120,7 +120,7 @@ object NativePdfExporter {
                         mathBlockLines.add(cleanLine)
                     }
                     yOffset = drawBlockMath(
-                        canvas, mathBlockLines, textPaint, serifItalicTypeface,
+                        context, canvas, mathBlockLines, textPaint, serifItalicTypeface,
                         margin, yOffset, printableWidth, pageHeight - margin,
                         mathBitmaps,
                         onNewPage = {
@@ -216,7 +216,7 @@ object NativePdfExporter {
                 if (cleanTrimmed.endsWith("$$") && cleanTrimmed.length > 2) {
                     val cleanFormula = cleanTrimmed.removePrefix("$$").removeSuffix("$$").trim()
                     yOffset = drawBlockMath(
-                        canvas, listOf(cleanFormula), textPaint, serifItalicTypeface,
+                        context, canvas, listOf(cleanFormula), textPaint, serifItalicTypeface,
                         margin, yOffset, printableWidth, pageHeight - margin,
                         mathBitmaps,
                         onNewPage = {
@@ -754,8 +754,8 @@ object NativePdfExporter {
 
         // Finish accumulated math block if document ends inside it
         if (inMathBlock && mathBlockLines.isNotEmpty()) {
-            drawBlockMath(
-                canvas, mathBlockLines, textPaint, serifItalicTypeface,
+            yOffset = drawBlockMath(
+                context, canvas, mathBlockLines, textPaint, serifItalicTypeface,
                 margin, yOffset, printableWidth, pageHeight - margin,
                 mathBitmaps,
                 onNewPage = { canvas }
@@ -2171,6 +2171,7 @@ object NativePdfExporter {
     }
 
     private fun drawBlockMath(
+        context: Context,
         canvas: Canvas,
         lines: List<String>,
         paint: TextPaint,
@@ -2189,9 +2190,14 @@ object NativePdfExporter {
         // 1. Try to render the precompiled bitmap first
         val bitmap = mathBitmaps[rawFormulaText]
         if (bitmap != null) {
-            val scale = (width / bitmap.width).coerceAtMost(1f)
-            val scaledWidth = bitmap.width * scale
-            val scaledHeight = bitmap.height * scale
+            val density = context.resources.displayMetrics.density
+            val intendedWidth = bitmap.width / density
+            val intendedHeight = bitmap.height / density
+            
+            // If the intended width is larger than page width, scale it down to fit. Otherwise keep 1:1.
+            val scale = (width / intendedWidth).coerceAtMost(1f)
+            val scaledWidth = intendedWidth * scale
+            val scaledHeight = intendedHeight * scale
             val blockHeight = scaledHeight + 10f
 
             if (yOffset + blockHeight > maxHeight) {
@@ -2202,7 +2208,11 @@ object NativePdfExporter {
             // Draw centered
             val xOffset = margin + (width - scaledWidth) / 2f
             val destRect = RectF(xOffset, yOffset + 5f, xOffset + scaledWidth, yOffset + 5f + scaledHeight)
-            currentCanvas.drawBitmap(bitmap, null, destRect, null)
+            
+            // Draw white background first for safety (in case PDF reader dark mode inverted it, though unlikely for PDF)
+            val bgPaint = Paint().apply { color = android.graphics.Color.WHITE; style = Paint.Style.FILL }
+            currentCanvas.drawRect(destRect, bgPaint)
+            currentCanvas.drawBitmap(bitmap, null, destRect, Paint(Paint.FILTER_BITMAP_FLAG))
             
             return yOffset + blockHeight
         }

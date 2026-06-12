@@ -121,8 +121,12 @@ object MathRenderer {
                 android.util.Log.d("MathRenderer", "onRenderComplete: width=$width, height=$height")
                 Handler(Looper.getMainLooper()).post {
                     try {
-                        val w = (width + 40).coerceAtMost(2000)
-                        val h = (height + 40).coerceAtMost(2000)
+                        val density = context.resources.displayMetrics.density
+                        val pixelWidth = (width * density).toInt()
+                        val pixelHeight = (height * density).toInt()
+                        
+                        val w = (pixelWidth + (40 * density).toInt()).coerceAtMost(2000)
+                        val h = (pixelHeight + (40 * density).toInt()).coerceAtMost(2000)
                         
                         val fullBitmap = Bitmap.createBitmap(2000, 2000, Bitmap.Config.ARGB_8888)
                         val canvas = Canvas(fullBitmap)
