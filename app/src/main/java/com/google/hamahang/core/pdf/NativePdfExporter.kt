@@ -1456,7 +1456,7 @@ object NativePdfExporter {
 
         // Match all advanced markdown/html structures precisely
         // NOTE: Do NOT use (?s) / dotall — it causes patterns like **...** to span across lines
-        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<ins>[^\\n]*?</ins>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
+        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<del>[^\\n]*?</del>|<ins>[^\\n]*?</ins>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
         val matches = regex.findAll(res)
 
         for (match in matches) {
@@ -1507,6 +1507,12 @@ object NativePdfExporter {
                 matchedTextLower.startsWith("~~") && matchedTextLower.endsWith("~~") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
+                    builder.append(parseMarkdownAndHtmlToSpannable(context, content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                    builder.setSpan(android.text.style.StrikethroughSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<del>") && matchedTextLower.endsWith("</del>") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(5, matchedTextClean.length - 6)
                     builder.append(parseMarkdownAndHtmlToSpannable(context, content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
                     builder.setSpan(android.text.style.StrikethroughSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
