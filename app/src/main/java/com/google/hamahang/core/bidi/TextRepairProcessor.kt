@@ -171,14 +171,14 @@ object TextRepairProcessor {
         // 4b. Strip HTML tags to ensure correct directional analysis for text starting with HTML markup
         val directionAnalysisStr = cleanStr.replace(Regex("<[^>]*>"), "")
 
-        // 5. Resolve based on the first strong character (official Unicode Standard Annex #9)
-        for (char in directionAnalysisStr) {
-            val charStr = char.toString()
-            if (PERSIAN_CHAR_PATTERN.matcher(charStr).matches()) {
-                return true
-            } else if (STRONG_LATIN_PATTERN.matcher(charStr).matches()) {
-                return false
-            }
+        // 5. If the paragraph contains ANY Persian character, it must be RTL
+        if (PERSIAN_CHAR_PATTERN.matcher(directionAnalysisStr).find()) {
+            return true
+        }
+
+        // 6. If no Persian characters exist, check if there are any strong Latin characters
+        if (STRONG_LATIN_PATTERN.matcher(directionAnalysisStr).find()) {
+            return false
         }
 
         // If no strong characters exist, default to RTL in a Persian-first app
