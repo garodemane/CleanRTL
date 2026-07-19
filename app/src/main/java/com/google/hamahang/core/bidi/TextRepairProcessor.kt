@@ -208,8 +208,8 @@ object TextRepairProcessor {
      * Prevents text layout leakage to surrounding Persian glyphs.
      */
     fun isolateLtrSubRuns(text: String): String {
-        // Match either an HTML tag (to ignore) OR a strong Latin run (to isolate)
-        val combinedRegex = Regex("(<[^>]+>)|([a-zA-Z0-9](?:[a-zA-Z0-9_:\\/.\\-@#\\$|\\\\+, \t=+*]*[a-zA-Z0-9])?)")
+        // Match either an HTML tag (to ignore) OR a strong Latin run (including extended Latin like umlauts)
+        val combinedRegex = Regex("(<[^>]+>)|([a-zA-Z0-9\\u00C0-\\u024F](?:[a-zA-Z0-9\\u00C0-\\u024F_:\\/.\\-@#\\$|\\\\+, \t=+*]*[a-zA-Z0-9\\u00C0-\\u024F])?)")
         
         return text.replace(combinedRegex) { matchResult ->
             val htmlTag = matchResult.groups[1]?.value
