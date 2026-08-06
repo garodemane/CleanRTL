@@ -69,7 +69,8 @@ object NativePdfExporter {
         val footnotesMap = mutableMapOf<String, String>()
 
         for (p in rawParagraphs) {
-            val cleanP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            val bidiFreeP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            val cleanP = bidiFreeP.trim()
             val match = refDefRegex.matchEntire(cleanP)
             val fnMatch = footnoteRegex.matchEntire(cleanP)
             if (match != null) {
@@ -82,7 +83,7 @@ object NativePdfExporter {
                 val fnText = fnMatch.groupValues[2].trim()
                 footnotesMap[id] = fnText
             } else {
-                paragraphs.add(p)
+                paragraphs.add(bidiFreeP)
             }
         }
 
@@ -1423,7 +1424,8 @@ object NativePdfExporter {
             return finalStr
         }
 
-        var res = encodeEscapes(input)
+        val cleanInput = input.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+        var res = encodeEscapes(cleanInput)
         res = res.replace(Regex("\\\\$"), "")
 
         val builder = SpannableStringBuilder()
