@@ -1012,10 +1012,43 @@ object HtmlExporter {
                         font-size: 0.9em;
                     }
 
-                    @media (prefers-color-scheme: dark) {
-                        code {
-                            background-color: rgba(83, 217, 164, 0.15);
-                            color: #53D9A4;
+                    @media print {
+                        @page {
+                            margin: 15mm 12mm 15mm 12mm;
+                            size: A4;
+                        }
+                        body {
+                            background-color: #FFFFFF !important;
+                            color: #1D203C !important;
+                            font-size: 11pt !important;
+                            -webkit-print-color-adjust: exact !important;
+                            print-color-adjust: exact !important;
+                        }
+                        .container {
+                            box-shadow: none !important;
+                            border: none !important;
+                            padding: 0 !important;
+                            margin: 0 !important;
+                            background: transparent !important;
+                            max-width: 100% !important;
+                        }
+                        .code-header .copy-btn {
+                            display: none !important;
+                        }
+                        .table-wrapper {
+                            overflow: visible !important;
+                            box-shadow: none !important;
+                            page-break-inside: auto;
+                        }
+                        tr {
+                            page-break-inside: avoid;
+                            page-break-after: auto;
+                        }
+                        thead {
+                            display: table-header-group;
+                        }
+                        pre, blockquote, details, .block-math {
+                            page-break-inside: avoid;
                         }
                     }
                 </style>

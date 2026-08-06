@@ -381,8 +381,8 @@ object NativePdfExporter {
                         headerPaint,
                         (printableWidth - 24).toInt()
                     )
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setTextDirection(if (isHeaderRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR)
+                    .setAlignment(if (isHeaderRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL)
+                    .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
                     .build()
 
                     val headerHeight = headerLayout.height + 16
@@ -650,8 +650,8 @@ object NativePdfExporter {
 
             // Resolve layout alignment and critical text direction heuristics
             val isRtl = TextRepairProcessor.isParagraphRtl(displayText)
-            val alignment = Layout.Alignment.ALIGN_NORMAL
-            val directionHeuristic = if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+            val alignment = if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL
+            val directionHeuristic = TextDirectionHeuristics.FIRSTSTRONG_LTR
 
             val quoteIndent = if (isQuote) quoteLevel * 8f + 12f else 0f
             val listIndent = listLevel * 16f
@@ -796,8 +796,8 @@ object NativePdfExporter {
                 val textLayoutBuilder = StaticLayout.Builder.obtain(
                     spannedText, 0, spannedText.length, textPaint, printableWidth.toInt()
                 )
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setTextDirection(if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR)
+                .setAlignment(if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL)
+                .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
                 
                 if (isJustified && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     textLayoutBuilder.setJustificationMode(android.text.Layout.JUSTIFICATION_MODE_INTER_WORD)
@@ -1265,12 +1265,12 @@ object NativePdfExporter {
                 )
 
                 val isRtl = TextRepairProcessor.isParagraphRtl(cellText)
-                val directionHeuristic = if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                val directionHeuristic = TextDirectionHeuristics.FIRSTSTRONG_LTR
 
                 val androidAlignment = when (alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEFT) {
-                    TableColumnAlignment.LEFT -> Layout.Alignment.ALIGN_NORMAL
+                    TableColumnAlignment.LEFT -> if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL
                     TableColumnAlignment.CENTER -> Layout.Alignment.ALIGN_CENTER
-                    TableColumnAlignment.RIGHT -> Layout.Alignment.ALIGN_OPPOSITE
+                    TableColumnAlignment.RIGHT -> if (isRtl) Layout.Alignment.ALIGN_NORMAL else Layout.Alignment.ALIGN_OPPOSITE
                 }
 
                 val layoutWidth = (colWidth - 16f).toInt().coerceAtLeast(10)
