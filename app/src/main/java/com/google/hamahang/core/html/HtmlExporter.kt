@@ -638,6 +638,7 @@ object HtmlExporter {
 
                     body {
                         font-family: 'Vazirmatn', 'Inter', sans-serif;
+                        font-size: ${fontSizePx}px;
                         background-color: var(--bg-color);
                         color: var(--text-color);
                         line-height: 1.8;
@@ -669,18 +670,27 @@ object HtmlExporter {
                     h5 { font-size: 1.0em; }
                     h6 { font-size: 0.85em; }
 
-                    p, li {
+                    h1.rtl, h2.rtl, h3.rtl, h4.rtl, h5.rtl, h6.rtl {
+                        text-align: right;
+                    }
+                    h1.ltr, h2.ltr, h3.ltr, h4.ltr, h5.ltr, h6.ltr {
+                        text-align: left;
+                    }
+
+                    p, li, blockquote, table, details {
                         font-size: ${fontSizePx}px;
                         margin-bottom: 1em;
                     }
 
                     .rtl {
                         text-align: ${if (isJustified) "justify" else "right"};
+                        text-justify: inter-word;
                         direction: rtl;
                     }
 
                     .ltr {
                         text-align: ${if (isJustified) "justify" else "left"};
+                        text-justify: inter-word;
                         direction: ltr;
                         font-family: 'Inter', sans-serif;
                     }
@@ -1012,6 +1022,13 @@ object HtmlExporter {
                         font-size: 0.9em;
                     }
 
+                    @media (prefers-color-scheme: dark) {
+                        code {
+                            background-color: rgba(83, 217, 164, 0.15);
+                            color: #53D9A4;
+                        }
+                    }
+
                     @media print {
                         @page {
                             margin: 15mm 12mm 15mm 12mm;
@@ -1020,7 +1037,7 @@ object HtmlExporter {
                         body {
                             background-color: #FFFFFF !important;
                             color: #1D203C !important;
-                            font-size: 11pt !important;
+                            font-size: ${fontSizePx}px !important;
                             -webkit-print-color-adjust: exact !important;
                             print-color-adjust: exact !important;
                         }

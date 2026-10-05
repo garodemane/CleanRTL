@@ -69,8 +69,7 @@ object NativePdfExporter {
         val footnotesMap = mutableMapOf<String, String>()
 
         for (p in rawParagraphs) {
-            val bidiFreeP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-            val cleanP = bidiFreeP.trim()
+            val cleanP = p.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
             val match = refDefRegex.matchEntire(cleanP)
             val fnMatch = footnoteRegex.matchEntire(cleanP)
             if (match != null) {
@@ -83,7 +82,7 @@ object NativePdfExporter {
                 val fnText = fnMatch.groupValues[2].trim()
                 footnotesMap[id] = fnText
             } else {
-                paragraphs.add(bidiFreeP)
+                paragraphs.add(p)
             }
         }
 
@@ -381,8 +380,8 @@ object NativePdfExporter {
                         headerPaint,
                         (printableWidth - 24).toInt()
                     )
-                    .setAlignment(if (isHeaderRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL)
-                    .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setTextDirection(if (isHeaderRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR)
                     .build()
 
                     val headerHeight = headerLayout.height + 16
@@ -650,8 +649,8 @@ object NativePdfExporter {
 
             // Resolve layout alignment and critical text direction heuristics
             val isRtl = TextRepairProcessor.isParagraphRtl(displayText)
-            val alignment = if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL
-            val directionHeuristic = TextDirectionHeuristics.FIRSTSTRONG_LTR
+            val alignment = Layout.Alignment.ALIGN_NORMAL
+            val directionHeuristic = if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
 
             val quoteIndent = if (isQuote) quoteLevel * 8f + 12f else 0f
             val listIndent = listLevel * 16f
@@ -670,8 +669,9 @@ object NativePdfExporter {
             .setTextDirection(directionHeuristic)
             .setLineSpacing(0f, 1.2f)
             
-            if (isJustified && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            if (isJustified && !isHeader && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 textLayoutBuilder.setJustificationMode(android.text.Layout.JUSTIFICATION_MODE_INTER_WORD)
+                textLayoutBuilder.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY)
             }
             
             val textLayout = textLayoutBuilder.build()
@@ -796,11 +796,12 @@ object NativePdfExporter {
                 val textLayoutBuilder = StaticLayout.Builder.obtain(
                     spannedText, 0, spannedText.length, textPaint, printableWidth.toInt()
                 )
-                .setAlignment(if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL)
-                .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setTextDirection(if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR)
                 
                 if (isJustified && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     textLayoutBuilder.setJustificationMode(android.text.Layout.JUSTIFICATION_MODE_INTER_WORD)
+                    textLayoutBuilder.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY)
                 }
                 
                 val textLayout = textLayoutBuilder.build()
@@ -849,7 +850,7 @@ object NativePdfExporter {
         val highlightedCode = highlightPdfCode(preprocessedCode)
 
         paint.apply {
-            textSize = 10f
+            textSize = (paint.textSize * 0.85f).coerceAtLeast(8f)
             this.typeface = typeface
             color = Color.rgb(212, 212, 212) // Default text color: #D4D4D4
         }
@@ -1265,12 +1266,12 @@ object NativePdfExporter {
                 )
 
                 val isRtl = TextRepairProcessor.isParagraphRtl(cellText)
-                val directionHeuristic = TextDirectionHeuristics.FIRSTSTRONG_LTR
+                val directionHeuristic = if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
 
                 val androidAlignment = when (alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEFT) {
-                    TableColumnAlignment.LEFT -> if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL
+                    TableColumnAlignment.LEFT -> Layout.Alignment.ALIGN_NORMAL
                     TableColumnAlignment.CENTER -> Layout.Alignment.ALIGN_CENTER
-                    TableColumnAlignment.RIGHT -> if (isRtl) Layout.Alignment.ALIGN_NORMAL else Layout.Alignment.ALIGN_OPPOSITE
+                    TableColumnAlignment.RIGHT -> Layout.Alignment.ALIGN_OPPOSITE
                 }
 
                 val layoutWidth = (colWidth - 16f).toInt().coerceAtLeast(10)
@@ -1424,8 +1425,7 @@ object NativePdfExporter {
             return finalStr
         }
 
-        val cleanInput = input.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-        var res = encodeEscapes(cleanInput)
+        var res = encodeEscapes(input)
         res = res.replace(Regex("\\\\$"), "")
 
         val builder = SpannableStringBuilder()
