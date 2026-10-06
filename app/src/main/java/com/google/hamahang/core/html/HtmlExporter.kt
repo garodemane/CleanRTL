@@ -161,7 +161,7 @@ object HtmlExporter {
                 continue
             }
 
-            if (cleanCodeBlockTrim.startsWith("```")) {
+            if (cleanCodeBlockTrim.startsWith("```") || cleanCodeBlockTrim.startsWith("~~~")) {
                 if (inCodeBlock) {
                     val rawCode = codeLines.joinToString("\n")
                     val preprocessed = preprocessCodeBidi(rawCode)
@@ -206,6 +206,52 @@ object HtmlExporter {
                 codeLines.add(paragraph)
                 idx++
                 continue
+            }
+
+            // Indented code block (4 spaces or 1 tab)
+            val isIndentedCode = (paragraph.startsWith("    ") || paragraph.startsWith("\t")) &&
+                    !trimmedClean.startsWith("- ") && !trimmedClean.startsWith("* ") && !trimmedClean.startsWith("• ") &&
+                    !Regex("^[0-9]+\\.").containsMatchIn(trimmedClean) && !trimmedClean.startsWith(">")
+            if (isIndentedCode) {
+                val indentedLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val pLine = paragraphs[k]
+                    if (pLine.startsWith("    ")) {
+                        indentedLines.add(pLine.substring(4))
+                    } else if (pLine.startsWith("\t")) {
+                        indentedLines.add(pLine.substring(1))
+                    } else if (pLine.isBlank() && k + 1 < paragraphs.size && (paragraphs[k + 1].startsWith("    ") || paragraphs[k + 1].startsWith("\t"))) {
+                        indentedLines.add("")
+                    } else {
+                        break
+                    }
+                    k++
+                }
+                if (indentedLines.isNotEmpty()) {
+                    val rawCode = indentedLines.joinToString("\n")
+                    val preprocessed = preprocessCodeBidi(rawCode)
+                    val codeContent = preprocessed
+                        .replace("&", "&amp;")
+                        .replace("<", "&lt;")
+                        .replace(">", "&gt;")
+                    htmlContent.append("""
+                        <div class="code-window">
+                            <div class="code-header">
+                                <div class="code-dots">
+                                    <span class="dot red"></span>
+                                    <span class="dot yellow"></span>
+                                    <span class="dot green"></span>
+                                </div>
+                                <span class="code-lang">CODE</span>
+                                <button class="copy-btn" onclick="copyCode(this)">کپی</button>
+                            </div>
+                            <pre><code class="language-code">$codeContent</code></pre>
+                        </div>
+                    """.trimIndent() + "\n")
+                    idx = k
+                    continue
+                }
             }
 
             if (paragraph.isBlank()) {
@@ -692,7 +738,9 @@ object HtmlExporter {
                         renderMathInElement(document.body, {
                             delimiters: [
                                 {left: "\$\$", right: "\$\$", display: true},
-                                {left: "\$", right: "\$", display: false}
+                                {left: "\$", right: "\$", display: false},
+                                {left: "\\(", right: "\\)", display: false},
+                                {left: "\\[", right: "\\]", display: true}
                             ],
                             throwOnError : false
                         });
@@ -1449,6 +1497,10 @@ object HtmlExporter {
         // 8. Strikethrough: ~~text~~
         res = res.replace(Regex("~~(.*?)~~"), "<del>$1</del>")
 
+        // 8.5. Subscript ~text~ and Superscript ^text^
+        res = res.replace(Regex("~([^~\\s]+)~"), "<sub>$1</sub>")
+        res = res.replace(Regex("\\^([^\\^\\s]+)\\^"), "<sup>$1</sup>")
+
         // 9. Underline: <ins>text</ins> — already valid HTML, passes through as-is
         
         // 10. Inline code: `code`
@@ -1466,10 +1518,13 @@ object HtmlExporter {
             "<sup><a href='#fn-$label'>[$label]</a></sup>"
         }
 
-        // 13. Inline math: $math$ (Clean Bidi markers so KaTeX works)
-        res = res.replace(Regex("\\$([^\\$]+)\\$")) { match ->
-            val cleanMath = match.groupValues[1].replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-            "$$cleanMath$"
+        // 13. Inline math: $math$ or \(math\) or \[math\] (Clean Bidi markers so KaTeX works)
+        res = res.replace(Regex("\\\\\\(([\\s\\S]*?)\\\\\\)|\\\\\\[([\\s\\S]*?)\\\\\\]|\\$([^\\$]+)\\$")) { match ->
+            val content = match.groupValues[1].ifEmpty { match.groupValues[2].ifEmpty { match.groupValues[3] } }
+            val cleanMath = content.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
+            if (match.value.startsWith("\\[")) "\\[$cleanMath\\]"
+            else if (match.value.startsWith("\\(")) "\\($cleanMath\\)"
+            else "\$$cleanMath\$"
         }
 
         // 14. Emoji shortcodes: :name:

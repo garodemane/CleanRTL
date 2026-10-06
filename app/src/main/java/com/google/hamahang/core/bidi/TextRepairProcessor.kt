@@ -78,7 +78,7 @@ object TextRepairProcessor {
                 return@map paragraph
             }
 
-            if (cleanCodeBlockTrim.startsWith("```")) {
+            if (cleanCodeBlockTrim.startsWith("```") || cleanCodeBlockTrim.startsWith("~~~")) {
                 if (cleanCodeBlockTrim.startsWith("```mermaid")) {
                     inMermaidBlock = true
                 } else if (inCodeBlock || inMermaidBlock) {
@@ -92,6 +92,13 @@ object TextRepairProcessor {
 
             if (inCodeBlock || inMermaidBlock) {
                 // Return code block and mermaid block lines completely untouched!
+                return@map paragraph
+            }
+
+            // 4-space or tab indented code block line
+            if ((paragraph.startsWith("    ") || paragraph.startsWith("\t")) &&
+                !trimmed.startsWith("- ") && !trimmed.startsWith("* ") && !trimmed.startsWith("• ") &&
+                !Regex("^[0-9]+\\.").containsMatchIn(trimmed) && !trimmed.startsWith(">")) {
                 return@map paragraph
             }
 
@@ -124,12 +131,21 @@ object TextRepairProcessor {
             if (isRtl) {
                 // Protect inline math runs before doing bidi repair
                 val mathPlaceholderMap = mutableListOf<String>()
-                val mathRegex = Regex("(\\$\\$\\s*.*?\\s*\\$\\$|\\$\\s*.*?\\s*\\$)")
+                val mathRegex = Regex("(\\$\\$\\s*.*?\\s*\\$\\$|\\$\\s*.*?\\s*\\$|\\\\\\(.*?\\\\\\)|\\\\\\[.*?\\\\\\]|(?:[a-zA-Z0-9_\'()\\s=+\\-*/^.]*?\\\\[a-zA-Z]+[a-zA-Z0-9_\'()\\s=+\\-*/^.\\{},]*))")
 
                 // Replace inline math runs with alphanumeric placeholders to avoid bidi corruption
                 result = mathRegex.replace(result) { matchResult ->
                     val placeholder = "MATHPLCHLDR${mathPlaceholderMap.size}"
                     mathPlaceholderMap.add(matchResult.value)
+                    placeholder
+                }
+
+                // Protect ruby annotation blocks before doing bidi repair
+                val rubyPlaceholderMap = mutableListOf<String>()
+                val rubyRegex = Regex("(?is)<ruby>.*?</ruby>")
+                result = rubyRegex.replace(result) { matchResult ->
+                    val placeholder = "RUBYPLCHLDR${rubyPlaceholderMap.size}"
+                    rubyPlaceholderMap.add(matchResult.value)
                     placeholder
                 }
 
@@ -143,6 +159,12 @@ object TextRepairProcessor {
 
                 // Step 3: Handle punctuation at sentence ends
                 result = fixTrailingPunctuation(result)
+
+                // Restore ruby annotation blocks from placeholders
+                rubyPlaceholderMap.forEachIndexed { index, originalRuby ->
+                    val placeholder = "RUBYPLCHLDR$index"
+                    result = result.replace(placeholder, originalRuby)
+                }
 
                 // Restore inline math runs from placeholders
                 mathPlaceholderMap.forEachIndexed { index, originalMath ->
@@ -251,8 +273,10 @@ object TextRepairProcessor {
      * Prevents text layout leakage to surrounding Persian glyphs.
      */
     fun isolateLtrSubRuns(text: String): String {
-        // Match either an HTML tag (to ignore) OR a strong Latin run (including extended Latin like umlauts)
-        val combinedRegex = Regex("(<[^>]+>)|([a-zA-Z0-9\\u00C0-\\u024F](?:[a-zA-Z0-9\\u00C0-\\u024F_:\\/.\\-@#\\$|\\\\+, \t=+*]*[a-zA-Z0-9\\u00C0-\\u024F])?)")
+        // Match either an HTML tag (excluding sub/sup so formulas stay together) OR a strong Latin/math run (including extended Latin, sub/superscript, and inline sub/sup tags)
+        val token = "(?:<sub[^>]*>.*?</sub>|<sup[^>]*>.*?</sup>|~[^~\\s]+~|\\^[^\\^\\s]+\\^|\\^[0-9a-zA-Z]+|[a-zA-Z0-9\\u00C0-\\u024F\\u00B2\\u00B3\\u00B9\\u2070-\\u209F\\u0370-\\u03FF\\u2200-\\u22FF])"
+        val connectors = "[ _:\\/.\\-@#\\$|\\\\+, \t=+]"
+        val combinedRegex = Regex("(<(?!/?(?:sub|sup)\\b)[^>]+>)|($token(?:$connectors*$token)*)")
         
         return text.replace(combinedRegex) { matchResult ->
             val htmlTag = matchResult.groups[1]?.value

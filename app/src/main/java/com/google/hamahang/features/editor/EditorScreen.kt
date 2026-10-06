@@ -1426,7 +1426,7 @@ fun MarkdownPreviewPaneContents(
 
         if (inCodeBlock) {
             val cleanTrimmed = paragraph.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
-            if (cleanTrimmed.startsWith("```")) {
+            if (cleanTrimmed.startsWith("```") || cleanTrimmed.startsWith("~~~")) {
                 ComposeCodeBlock(lines = codeLines, fontSize = (baseFontSize * 0.85).sp)
                 codeLines.clear()
                 inCodeBlock = false
@@ -1469,6 +1469,32 @@ fun MarkdownPreviewPaneContents(
             }
         }
         val listLevel = indentCount / 2
+
+        val isIndentedCode = (paragraph.startsWith("    ") || paragraph.startsWith("\t")) &&
+                !trimmed.startsWith("- ") && !trimmed.startsWith("* ") && !trimmed.startsWith("• ") &&
+                !Regex("^[0-9]+\\.").containsMatchIn(trimmed) && !trimmed.startsWith(">")
+        if (isIndentedCode) {
+            val indentedLines = mutableListOf<String>()
+            var k = idx
+            while (k < paragraphs.size) {
+                val pLine = paragraphs[k]
+                if (pLine.startsWith("    ")) {
+                    indentedLines.add(pLine.substring(4))
+                } else if (pLine.startsWith("\t")) {
+                    indentedLines.add(pLine.substring(1))
+                } else if (pLine.isBlank() && k + 1 < paragraphs.size && (paragraphs[k + 1].startsWith("    ") || paragraphs[k + 1].startsWith("\t"))) {
+                    indentedLines.add("")
+                } else {
+                    break
+                }
+                k++
+            }
+            if (indentedLines.isNotEmpty()) {
+                ComposeCodeBlock(lines = indentedLines, fontSize = (baseFontSize * 0.85).sp)
+                idx = k
+                continue
+            }
+        }
 
         // Robustly strip any leading/trailing bidi control characters for math block checks
         val bidiRegex = Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069\\u200C\\u200D\\uFEFF]+")
@@ -1849,7 +1875,7 @@ fun MarkdownPreviewPaneContents(
         }
 
         val cleanBlockTrimmed = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
-        if (cleanBlockTrimmed.startsWith("```")) {
+        if (cleanBlockTrimmed.startsWith("```") || cleanBlockTrimmed.startsWith("~~~")) {
             val rawLang = cleanBlockTrimmed.substring(3).trim().lowercase()
             val lang = rawLang.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
             if (lang == "mermaid") {
@@ -3574,7 +3600,10 @@ fun renderInlineMath(content: String, codeBgColor: Color): AnnotatedString {
         '0' to "₀", '1' to "₁", '2' to "₂", '3' to "₃", '4' to "₄",
         '5' to "₅", '6' to "₆", '7' to "₇", '8' to "₈", '9' to "₉",
         '+' to "₊", '-' to "₋", '=' to "₌", '(' to "₍", ')' to "₎",
-        'a' to "ₐ", 'e' to "ₑ", 'o' to "ₒ", 'i' to "ᵢ", 'u' to "ᵤ"
+        'a' to "ₐ", 'e' to "ₑ", 'o' to "ₒ", 'i' to "ᵢ", 'u' to "ᵤ",
+        'x' to "ₓ", 'r' to "ᵣ", 'v' to "ᵥ", 'j' to "ⱼ", 'h' to "ₕ",
+        'k' to "ₖ", 'l' to "ₗ", 'm' to "ₘ", 'n' to "ₙ", 'p' to "ₚ",
+        's' to "ₛ", 't' to "ₜ"
     )
 
     fun toSup(s: String) = s.map { superMap[it] ?: it.toString() }.joinToString("")
@@ -3592,7 +3621,7 @@ fun renderInlineMath(content: String, codeBgColor: Color): AnnotatedString {
         s = s.replace(Regex("\\\\(text|mathbf|mathrm|textbf|mathit)\\{([^{}]*)\\}")) { m -> m.groupValues[2] }
 
         // Standard functions
-        s = s.replace(Regex("\\\\(ln|log|exp|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|lim|det|max|min)\\b")) { m -> m.groupValues[1] }
+        s = s.replace(Regex("\\\\(ln|log|exp|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|lim|det|max|min)(?![a-zA-Z])")) { m -> m.groupValues[1] }
 
         // LaTeX commands
         s = s.replace(Regex("\\\\frac\\{([^}]*)\\}\\{([^}]*)\\}")) { m -> "${m.groupValues[1]}/${m.groupValues[2]}" }
@@ -3739,7 +3768,7 @@ fun parseMarkdownInlineStyles(
     }
 
     // Match images, bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font/abbr, autolinks, auto-emails, footnotes, kbd, reference links, line breaks, emojis
-    val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]+?\\*\\*\\*|\\*\\*[^\\n]+?\\*\\*|__[^\\n]+?__|\\*[^\\n\\*]+?\\*|_[^_\\n\\r]+?_|~~.*?~~|<del>.*?</del>|<ins>.*?</ins>|<mark>.*?</mark>|<u>.*?</u>|<sub>.*?</sub>|<sup>.*?</sup>|<img\\b[^>]*\\/?>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\$|  $)")
+    val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|<b>[^\\n]*?</b>|<i>[^\\n]*?</i>|<ruby>[\\s\\S]*?</ruby>|\\*\\*\\*[^\\n]+?\\*\\*\\*|\\*\\*[^\\n]+?\\*\\*|__[^\\n]+?__|\\*[^\\n\\*]+?\\*|_[^_\\n\\r]+?_|~~.*?~~|<del>.*?</del>|<ins>.*?</ins>|<mark>.*?</mark>|<u>.*?</u>|<sub>.*?</sub>|<sup>.*?</sup>|<img\\b[^>]*\\/?>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|\\\\\\([\\s\\S]*?\\\\\\)|\\\\\\[[\\s\\S]*?\\\\\\]|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\$|  $)")
     val matches = regex.findAll(encodedInput)
 
     for (match in matches) {
@@ -3870,6 +3899,41 @@ fun parseMarkdownInlineStyles(
                 ))
                 builder.append("\uD83D\uDDBC $altText")
                 builder.pop()
+            }
+            matchedTextLower.startsWith("<b>") && matchedTextLower.endsWith("</b>") -> {
+                builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                val content = matchedTextClean.substring(3, matchedTextClean.length - 4)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
+                builder.pop()
+            }
+            matchedTextLower.startsWith("<i>") && matchedTextLower.endsWith("</i>") -> {
+                builder.pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
+                val content = matchedTextClean.substring(3, matchedTextClean.length - 4)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
+                builder.pop()
+            }
+            matchedTextLower.startsWith("<ruby") && matchedTextLower.endsWith("</ruby>") -> {
+                val withoutRp = matchedTextClean.replace(Regex("(?is)<rp>.*?</rp>"), "")
+                val rubyInner = withoutRp.replace(Regex("(?i)^<ruby>|</ruby>$"), "").trim()
+                val rtRegex = Regex("(?is)(.*?)<rt>(.*?)</rt>")
+                val rtMatches = rtRegex.findAll(rubyInner).toList()
+                if (rtMatches.isNotEmpty()) {
+                    for (m in rtMatches) {
+                        val base = m.groupValues[1].replace(Regex("(?i)<rb>|</rb>"), "").trim()
+                        val rt = m.groupValues[2].trim()
+                        if (base.isNotEmpty()) {
+                            builder.append(parseMarkdownInlineStyles(base, codeBgColor, referenceMap))
+                        }
+                        if (rt.isNotEmpty()) {
+                            builder.pushStyle(SpanStyle(fontSize = 0.75.em, color = Color.Gray))
+                            builder.append(" ($rt)")
+                            builder.pop()
+                        }
+                    }
+                } else {
+                    val clean = matchedTextClean.replace(Regex("(?i)<[^>]+>"), "")
+                    builder.append(clean)
+                }
             }
             matchedTextLower.startsWith("<strong>") && matchedTextLower.endsWith("</strong>") -> {
                 builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
@@ -4039,6 +4103,14 @@ fun parseMarkdownInlineStyles(
             }
             matchedTextLower.startsWith("$") && matchedTextLower.endsWith("$") -> {
                 val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                builder.append(renderInlineMath(content, codeBgColor))
+            }
+            matchedTextLower.startsWith("\\(") && matchedTextLower.endsWith("\\)") -> {
+                val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
+                builder.append(renderInlineMath(content, codeBgColor))
+            }
+            matchedTextLower.startsWith("\\[") && matchedTextLower.endsWith("\\]") -> {
+                val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
                 builder.append(renderInlineMath(content, codeBgColor))
             }
             matchedTextLower.startsWith("<abbr") || matchedTextLower.contains("abbr") -> {

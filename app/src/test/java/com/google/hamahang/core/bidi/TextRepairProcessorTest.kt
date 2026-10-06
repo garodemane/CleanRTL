@@ -138,6 +138,47 @@ class TextRepairProcessorTest {
     }
 
     @Test
+    fun testNewScreenshots() {
+        val mathLine = "فرمول درون‌خطی: نرخ تغییرات با رابطه \$f'(x) = \\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h}\$ تعریف می‌شود."
+        val mathRepaired = TextRepairProcessor.repairText(mathLine)
+        assertTrue(mathRepaired.contains("\$f'(x) = \\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h}\$"))
+        val styledMath = com.google.hamahang.features.editor.parseMarkdownInlineStyles(mathRepaired, androidx.compose.ui.graphics.Color.White)
+        assertTrue(styledMath.text.contains("f'(x) ="))
+        assertTrue(styledMath.text.contains("lim"))
+
+        val rubyLine = "• راهنمای تلفظ (Ruby Text): <ruby>東京<rp>(</rp><rt>Tōkyō</rt><rp>)</rp></ruby> - <ruby>برلین<rp>(</rp><rt>Berlin</rt><rp>)</rp></ruby>"
+        val rubyRepaired = TextRepairProcessor.repairText(rubyLine)
+        assertTrue(rubyRepaired.contains("<ruby>東京<rp>(</rp><rt>Tōkyō</rt><rp>)</rp></ruby>"))
+        assertTrue(rubyRepaired.contains("<ruby>برلین<rp>(</rp><rt>Berlin</rt><rp>)</rp></ruby>"))
+
+        val subLine = "• زیرنویس (Subscript): H~2~O (آب / Wasser / Water)"
+        val subLineHtml = "• زیرنویس (Subscript): H<sub>2</sub>O (آب / Wasser / Water)"
+        val superLine = "• بالانویس (Superscript): E = mc^2^ (انرژی / Energie / Energy)"
+        val superLineHtml = "• بالانویس (Superscript): E = mc<sup>2</sup> (انرژی / Energie / Energy)"
+        
+        val subRepaired = TextRepairProcessor.repairText(subLine)
+        val subHtmlRepaired = TextRepairProcessor.repairText(subLineHtml)
+        val superRepaired = TextRepairProcessor.repairText(superLine)
+        val superHtmlRepaired = TextRepairProcessor.repairText(superLineHtml)
+
+        assertTrue(subRepaired.contains("\u2066H~2~O\u2069"))
+        assertTrue(subHtmlRepaired.contains("\u2066H<sub>2</sub>O\u2069"))
+        assertTrue(superRepaired.contains("\u2066E = mc^2^\u2069"))
+        assertTrue(superHtmlRepaired.contains("\u2066E = mc<sup>2</sup>\u2069"))
+
+        val summaryLine = "<summary><b>Click to expand / Zum Erweitern klicken / برای مشاهده جزئیات کلیک کنید 🔽</b></summary>"
+        val summaryRepaired = TextRepairProcessor.repairText(summaryLine)
+        assertTrue(summaryRepaired.startsWith("<summary><b>"))
+        assertTrue(summaryRepaired.endsWith("</b></summary>"))
+        assertTrue(summaryRepaired.contains("Click to expand"))
+        assertTrue(summaryRepaired.contains("برای مشاهده جزئیات کلیک کنید"))
+
+        val parsedSummary = com.google.hamahang.features.editor.parseMarkdownInlineStyles(summaryRepaired, androidx.compose.ui.graphics.Color.White)
+        assertTrue(!parsedSummary.text.contains("<b>"))
+        assertTrue(!parsedSummary.text.contains("</b>"))
+    }
+
+    @Test
     fun testExplicitParagraphDirectionOverrides() {
         val lrm = 0x200E.toChar()
         val rlm = 0x200F.toChar()

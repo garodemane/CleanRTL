@@ -174,7 +174,7 @@ object NativePdfExporter {
             if (inCodeBlock) {
                 val trimmed = paragraph.trim()
                 val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
-                if (cleanCodeBlockTrim.startsWith("```")) {
+                if (cleanCodeBlockTrim.startsWith("```") || cleanCodeBlockTrim.startsWith("~~~")) {
                     // Draw accumulated code block
                     yOffset = drawCodeBlock(
                         canvas, codeBlockLines, textPaint, monospaceTypeface,
@@ -240,9 +240,48 @@ object NativePdfExporter {
                 continue
             }
 
+            // 3a. Indented Code Block (4 spaces or 1 tab)
+            val isIndentedCode = (paragraph.startsWith("    ") || paragraph.startsWith("\t")) &&
+                    !trimmed.startsWith("- ") && !trimmed.startsWith("* ") && !trimmed.startsWith("• ") &&
+                    !Regex("^[0-9]+\\.").containsMatchIn(trimmed) && !trimmed.startsWith(">")
+            if (isIndentedCode) {
+                val indentedLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val pLine = paragraphs[k]
+                    if (pLine.startsWith("    ")) {
+                        indentedLines.add(pLine.substring(4))
+                    } else if (pLine.startsWith("\t")) {
+                        indentedLines.add(pLine.substring(1))
+                    } else if (pLine.isBlank() && k + 1 < paragraphs.size && (paragraphs[k + 1].startsWith("    ") || paragraphs[k + 1].startsWith("\t"))) {
+                        indentedLines.add("")
+                    } else {
+                        break
+                    }
+                    k++
+                }
+                if (indentedLines.isNotEmpty()) {
+                    yOffset = drawCodeBlock(
+                        canvas, indentedLines, textPaint, monospaceTypeface,
+                        margin, yOffset, printableWidth, pageHeight - margin,
+                        onNewPage = {
+                            pdfDocument.finishPage(currentPage)
+                            currentPageNumber++
+                            pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                            currentPage = pdfDocument.startPage(pageInfo)
+                            canvas = currentPage.canvas
+                            yOffset = margin
+                            canvas
+                        }
+                    )
+                    idx = k
+                    continue
+                }
+            }
+
             // 3. Code/Mermaid Block boundary check
             val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
-            if (cleanCodeBlockTrim.startsWith("```")) {
+            if (cleanCodeBlockTrim.startsWith("```") || cleanCodeBlockTrim.startsWith("~~~")) {
                 val rawLang = cleanCodeBlockTrim.substring(3).trim().lowercase()
                 val lang = rawLang.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
                 if (lang == "mermaid") {
@@ -1512,7 +1551,9 @@ object NativePdfExporter {
             '5' to "\u2085", '6' to "\u2086", '7' to "\u2087", '8' to "\u2088", '9' to "\u2089",
             '+' to "\u208A", '-' to "\u208B", '=' to "\u208C", '(' to "\u208D", ')' to "\u208E",
             'a' to "\u2090", 'e' to "\u2091", 'o' to "\u2092", 'i' to "\u1D62", 'u' to "\u1D64",
-            'x' to "\u2093", 'r' to "\u1D63", 'v' to "\u1D65", 'j' to "\u2C7C"
+            'x' to "\u2093", 'r' to "\u1D63", 'v' to "\u1D65", 'j' to "\u2C7C",
+            'h' to "\u2095", 'k' to "\u2096", 'l' to "\u2097", 'm' to "\u2098", 'n' to "\u2099",
+            'p' to "\u209A", 's' to "\u209B", 't' to "\u209C"
         )
 
         fun toSup(s: String) = s.map { superMap[it] ?: it.toString() }.joinToString("")
@@ -1531,7 +1572,7 @@ object NativePdfExporter {
         s = s.replace(Regex("\\\\(text|mathbf|mathrm|textbf|mathit)\\{([^{}]*)\\}")) { m -> m.groupValues[2] }
 
         // Step 1b: Standard math functions
-        s = s.replace(Regex("\\\\(ln|log|exp|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|lim|det|max|min)\\b")) { m -> m.groupValues[1] }
+        s = s.replace(Regex("\\\\(ln|log|exp|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|lim|det|max|min)(?![a-zA-Z])")) { m -> m.groupValues[1] }
 
         // Step 1b: Handle matrix environments — convert to plain text table
         val matrixEnvRegex = Regex("\\\\begin\\s*\\{(p?matrix|b?matrix|Bmatrix|vmatrix|Vmatrix|array)\\}([\\s\\S]*?)\\\\end\\s*\\{\\1\\}", RegexOption.DOT_MATCHES_ALL)
@@ -1562,6 +1603,7 @@ object NativePdfExporter {
         fun latexSymbolToStr(sym: String): String {
             var r = sym
             r = r.replace("\\infty", "\u221E")
+            r = r.replace("\\to", "\u2192").replace("\\rightarrow", "\u2192")
             r = r.replace("\\alpha", "\u03B1").replace("\\beta", "\u03B2").replace("\\gamma", "\u03B3")
             r = r.replace("\\delta", "\u03B4").replace("\\sigma", "\u03C3").replace("\\theta", "\u03B8")
             r = r.replace("\\pi", "\u03C0").replace("\\mu", "\u03BC").replace("\\lambda", "\u03BB")
@@ -2096,7 +2138,7 @@ object NativePdfExporter {
 
         // Match all advanced markdown/html structures precisely
         // NOTE: Do NOT use (?s) / dotall — it causes patterns like **...** to span across lines
-        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<del>[^\\n]*?</del>|<ins>[^\\n]*?</ins>|<mark>[^\\n]*?</mark>|<u>[^\\n]*?</u>|<sub>[^\\n]*?</sub>|<sup>[^\\n]*?</sup>|<img\\b[^>]*\\/?>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
+        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|<b>[^\\n]*?</b>|<i>[^\\n]*?</i>|<ruby>[\\s\\S]*?</ruby>|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<del>[^\\n]*?</del>|<ins>[^\\n]*?</ins>|<mark>[^\\n]*?</mark>|<u>[^\\n]*?</u>|<sub>[^\\n]*?</sub>|<sup>[^\\n]*?</sup>|<img\\b[^>]*\\/?>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|\\\\\\([\\s\\S]*?\\\\\\)|\\\\\\[[\\s\\S]*?\\\\\\]|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
         val matches = regex.findAll(res)
 
         for (match in matches) {
@@ -2196,6 +2238,42 @@ object NativePdfExporter {
                     builder.append("\uD83D\uDDBC $altText")
                     builder.setSpan(android.text.style.ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<b>") && matchedTextLower.endsWith("</b>") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(3, matchedTextClean.length - 4)
+                    builder.append(parseMarkdownAndHtmlToSpannable(context, content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                    builder.setSpan(StyleSpan(Typeface.BOLD), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<i>") && matchedTextLower.endsWith("</i>") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(3, matchedTextClean.length - 4)
+                    builder.append(parseMarkdownAndHtmlToSpannable(context, content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<ruby") && matchedTextLower.endsWith("</ruby>") -> {
+                    val withoutRp = matchedTextClean.replace(Regex("(?is)<rp>.*?</rp>"), "")
+                    val rubyInner = withoutRp.replace(Regex("(?i)^<ruby>|</ruby>$"), "").trim()
+                    val rtRegex = Regex("(?is)(.*?)<rt>(.*?)</rt>")
+                    val rtMatches = rtRegex.findAll(rubyInner).toList()
+                    if (rtMatches.isNotEmpty()) {
+                        for (m in rtMatches) {
+                            val base = m.groupValues[1].replace(Regex("(?i)<rb>|</rb>"), "").trim()
+                            val rt = m.groupValues[2].trim()
+                            if (base.isNotEmpty()) {
+                                builder.append(parseMarkdownAndHtmlToSpannable(context, base, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                            }
+                            if (rt.isNotEmpty()) {
+                                val start = builder.length
+                                builder.append(" ($rt)")
+                                builder.setSpan(android.text.style.RelativeSizeSpan(0.75f), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                                builder.setSpan(ForegroundColorSpan(Color.rgb(128, 128, 128)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            }
+                        }
+                    } else {
+                        val clean = matchedTextClean.replace(Regex("(?i)<[^>]+>"), "")
+                        builder.append(clean)
+                    }
                 }
                 matchedTextLower.startsWith("<strong>") && matchedTextLower.endsWith("</strong>") -> {
                     val start = builder.length
@@ -2386,6 +2464,20 @@ object NativePdfExporter {
                 matchedTextLower.startsWith("$") && matchedTextLower.endsWith("$") -> {
                     val start = builder.length
                     val content = matchedTextClean.substring(1, matchedTextClean.length - 1)
+                    builder.append(replaceLatexWithUnicode(decodeEscapesEscaped(content)))
+                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("\\(") && matchedTextLower.endsWith("\\)") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
+                    builder.append(replaceLatexWithUnicode(decodeEscapesEscaped(content)))
+                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("\\[") && matchedTextLower.endsWith("\\]") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(2, matchedTextClean.length - 2)
                     builder.append(replaceLatexWithUnicode(decodeEscapesEscaped(content)))
                     builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(android.text.style.TypefaceSpan("serif"), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
