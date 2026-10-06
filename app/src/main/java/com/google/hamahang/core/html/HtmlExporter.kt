@@ -1056,6 +1056,13 @@ object HtmlExporter {
                         overflow-x: auto;
                     }
 
+                    progress {
+                        accent-color: var(--primary-color, #1a73e8);
+                        height: 14px;
+                        border-radius: 7px;
+                        vertical-align: middle;
+                    }
+
                     /* Task List Checkboxes */
                     ul.task-list {
                         list-style: none;

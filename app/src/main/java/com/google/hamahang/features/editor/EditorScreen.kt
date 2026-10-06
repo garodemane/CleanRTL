@@ -625,13 +625,27 @@ fun repairText(input: String): String {
                         try {
                             val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                 kotlinx.coroutines.withTimeoutOrNull(10000L) {
-                                    val loader = coil.ImageLoader(context)
+                                    val loader = coil.ImageLoader.Builder(context)
+                                        .components {
+                                            add(coil.decode.SvgDecoder.Factory())
+                                        }
+                                        .build()
                                     val request = coil.request.ImageRequest.Builder(context)
                                         .data(url)
                                         .allowHardware(false)
                                         .build()
-                                    val result = (loader.execute(request) as? coil.request.SuccessResult)?.drawable
-                                    (result as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                                    val drawable = (loader.execute(request) as? coil.request.SuccessResult)?.drawable
+                                    if (drawable is android.graphics.drawable.BitmapDrawable) {
+                                        drawable.bitmap
+                                    } else if (drawable != null) {
+                                        val w = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 300
+                                        val h = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 80
+                                        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                                        val cv = android.graphics.Canvas(bmp)
+                                        drawable.setBounds(0, 0, w, h)
+                                        drawable.draw(cv)
+                                        bmp
+                                    } else null
                                 }
                             }
                             if (bitmap != null) {
@@ -1267,9 +1281,28 @@ fun MarkdownPreviewPaneContents(
     val rawLines = text.split("\n")
     val mergedLines = mutableListOf<String>()
     val currentPara = StringBuilder()
+    var inMath = false
+    var inCode = false
     for (line in rawLines) {
         val noCr = line.removeSuffix("\r")
-        if (noCr.endsWith("\\")) {
+        val cleanTrimmed = noCr.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+        if (cleanTrimmed.startsWith("```")) {
+            inCode = !inCode
+        }
+        if (cleanTrimmed == "$$" || (cleanTrimmed.startsWith("$$") && !cleanTrimmed.endsWith("$$"))) {
+            inMath = !inMath
+        }
+        
+        if (inMath || inCode) {
+            if (currentPara.isNotEmpty()) {
+                mergedLines.add(currentPara.toString())
+                currentPara.clear()
+            }
+            mergedLines.add(noCr)
+            continue
+        }
+        
+        if (noCr.endsWith("\\") && !noCr.endsWith("\\\\")) {
             currentPara.append(noCr.removeSuffix("\\")).append("\n")
         } else if (noCr.endsWith("  ")) {
             currentPara.append(noCr.removeSuffix("  ")).append("\n")
@@ -1324,7 +1357,11 @@ fun MarkdownPreviewPaneContents(
 
         if (inDetailsBlock) {
             val cleanTrimmed = paragraph.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
-            if (cleanTrimmed.lowercase() == "</details>") {
+            if (cleanTrimmed.lowercase().contains("</details>")) {
+                val cleanLine = cleanTrimmed.replace(Regex("(?i)</details>"), "").trim()
+                if (cleanLine.isNotEmpty()) {
+                    detailsLines.add(cleanLine)
+                }
                 val fullContent = detailsLines.joinToString("\n")
                 var summaryText = "Details"
                 var contentText = fullContent
@@ -1444,9 +1481,35 @@ fun MarkdownPreviewPaneContents(
 
         val cleanTrimmedLower = cleanTrimmed.lowercase()
         if (cleanTrimmedLower.startsWith("<details")) {
-            inDetailsBlock = true
-            idx++
-            continue
+            val contentAfterTag = cleanTrimmed.replace(Regex("(?i)^<details[^>]*>"), "").trim()
+            if (cleanTrimmedLower.contains("</details>")) {
+                val fullContent = contentAfterTag.replace(Regex("(?i)</details>$"), "").trim()
+                var summaryText = "Details"
+                var contentText = fullContent
+                val summaryRegex = Regex("(?is)<summary>(.*?)</summary>")
+                val summaryMatch = summaryRegex.find(fullContent)
+                if (summaryMatch != null) {
+                    summaryText = summaryMatch.groupValues[1].trim()
+                    contentText = fullContent.replace(summaryMatch.value, "").trim()
+                }
+                MarkdownDetails(
+                    summary = summaryText,
+                    content = contentText,
+                    baseFontSize = (baseFontSize * uiFontScale).sp,
+                    uiFontScale = uiFontScale,
+                    referenceMap = referenceMap,
+                    isJustified = isJustified
+                )
+                idx++
+                continue
+            } else {
+                inDetailsBlock = true
+                if (contentAfterTag.isNotEmpty()) {
+                    detailsLines.add(contentAfterTag)
+                }
+                idx++
+                continue
+            }
         }
 
         // Check if this line starts a math block
@@ -1520,26 +1583,35 @@ fun MarkdownPreviewPaneContents(
             }
         }
 
+        // Check if this line is an HTML Progress Bar: <progress value="..." max="...">
+        if (cleanTrimmedLower.startsWith("<progress")) {
+            val progressMatch = Regex("""(?i)<progress\s+value=["']?(\d+(?:\.\d+)?)["']?(?:\s+max=["']?(\d+(?:\.\d+)?)["']?)?[^>]*>""").find(cleanTrimmed)
+            if (progressMatch != null) {
+                val value = progressMatch.groupValues[1].toFloatOrNull() ?: 0f
+                val max = progressMatch.groupValues[2].toFloatOrNull().takeIf { it != null && it > 0 } ?: 100f
+                MarkdownProgressBar(value = value, max = max)
+                idx++
+                continue
+            }
+        }
+
         // Check if this line is an HTML div / center alignment container
         if (cleanTrimmedLower.startsWith("<div") || cleanTrimmedLower.startsWith("<center")) {
-            val alignment = parseDivAlignment(cleanTrimmedLower)
+            val divStyle = parseDivBoxStyle(cleanTrimmed)
             val isClosingSameLine = cleanTrimmedLower.contains("</div>") || cleanTrimmedLower.contains("</center>")
+            val divContentLines = mutableListOf<String>()
+
             if (isClosingSameLine) {
                 val inner = cleanTrimmed
                     .replace(Regex("(?i)^<[\\s\\u00A0]*(div[^>]*|center)[\\s\\u00A0]*>"), "")
                     .replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(div|center)[\\s\\u00A0]*>$"), "")
                     .trim()
                 if (inner.isNotEmpty()) {
-                    MarkdownParagraph(
-                        text = inner,
-                        fontSize = (baseFontSize * uiFontScale).sp,
-                        referenceMap = referenceMap,
-                        isJustified = isJustified,
-                        explicitAlignment = alignment
-                    )
+                    inner.split(Regex("(?i)<br\\s*/?>")).forEach {
+                        if (it.isNotBlank()) divContentLines.add(it.trim())
+                    }
                 }
                 idx++
-                continue
             } else {
                 var k = idx + 1
                 while (k < paragraphs.size) {
@@ -1550,19 +1622,36 @@ fun MarkdownPreviewPaneContents(
                         break
                     }
                     if (line.isNotBlank()) {
-                        MarkdownParagraph(
-                            text = line,
-                            fontSize = (baseFontSize * uiFontScale).sp,
-                            referenceMap = referenceMap,
-                            isJustified = isJustified,
-                            explicitAlignment = alignment
-                        )
+                        line.split(Regex("(?i)<br\\s*/?>")).forEach {
+                            if (it.isNotBlank()) divContentLines.add(it.trim())
+                        }
                     }
                     k++
                 }
                 idx = k
-                continue
             }
+
+            if (divStyle.isStyledBox) {
+                ComposeStyledBox(
+                    style = divStyle,
+                    lines = divContentLines,
+                    baseFontSize = baseFontSize,
+                    uiFontScale = uiFontScale,
+                    referenceMap = referenceMap,
+                    isJustified = isJustified
+                )
+            } else {
+                divContentLines.forEach { line ->
+                    MarkdownParagraph(
+                        text = line,
+                        fontSize = (baseFontSize * uiFontScale).sp,
+                        referenceMap = referenceMap,
+                        isJustified = isJustified,
+                        explicitAlignment = divStyle.textAlign
+                    )
+                }
+            }
+            continue
         }
         if (cleanTrimmedLower.startsWith("</div") || cleanTrimmedLower.startsWith("</center")) {
             idx++
@@ -1699,23 +1788,16 @@ fun MarkdownPreviewPaneContents(
                 val linkUrl = match.groupValues[3].trim()
                 MarkdownImage(url = imgUrl, alt = alt, linkUrl = linkUrl)
             }
-            // Image with title or plain image (catch-all for ![alt](url...) lines)
-            fullyCleanTrimmed.startsWith("![") && fullyCleanTrimmed.contains("](") && fullyCleanTrimmed.endsWith(")") && !fullyCleanTrimmed.startsWith("[![") -> {
-                // Extract URL: everything after ]( up to first whitespace or )
-                val innerStart = fullyCleanTrimmed.indexOf("](") + 2
-                val innerContent = fullyCleanTrimmed.substring(innerStart, fullyCleanTrimmed.length - 1)
-                val imgUrl = innerContent.split(Regex("\\s+")).firstOrNull()?.trim() ?: ""
+            // Image with title, tooltip, or plain image: ![alt](url...) or ![alt](url) "tooltip"
+            fullyCleanTrimmed.startsWith("![") && fullyCleanTrimmed.contains("](") && !fullyCleanTrimmed.startsWith("[![") -> {
                 val altStart = 2
-                val altEnd = fullyCleanTrimmed.indexOf("](") 
+                val altEnd = fullyCleanTrimmed.indexOf("](")
                 val alt = if (altEnd > altStart) fullyCleanTrimmed.substring(altStart, altEnd) else ""
+                val innerStart = altEnd + 2
+                val remaining = fullyCleanTrimmed.substring(innerStart)
+                val urlEnd = remaining.indexOfFirst { it == ')' || it == ' ' || it == '\t' || it == '"' || it == '\'' }
+                val imgUrl = if (urlEnd != -1) remaining.substring(0, urlEnd).trim() else remaining.removeSuffix(")").trim()
                 if (imgUrl.isNotEmpty()) MarkdownImage(url = imgUrl, alt = alt, linkUrl = null)
-            }
-            // Image: ![alt](url)
-            fullyCleanTrimmed.matches(Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+)\\)$")) -> {
-                val match = Regex("^!\\[([^\\]]*)\\]\\(([^\\)]+)\\)$").find(fullyCleanTrimmed)!!
-                val alt = match.groupValues[1]
-                val imgUrl = match.groupValues[2].trim()
-                MarkdownImage(url = imgUrl, alt = alt, linkUrl = null)
             }
             // HTML Image block: <img ...>
             cleanTrimmedLower.startsWith("<img") -> {
@@ -1758,6 +1840,25 @@ fun MarkdownPreviewPaneContents(
     if (inMermaidBlock && mermaidLines.isNotEmpty()) {
         val fullMermaid = mermaidLines.joinToString("\n")
         ComposeMermaidBlock(code = fullMermaid)
+    }
+    if (inDetailsBlock && detailsLines.isNotEmpty()) {
+        val fullContent = detailsLines.joinToString("\n")
+        var summaryText = "Details"
+        var contentText = fullContent
+        val summaryRegex = Regex("(?is)<summary>(.*?)</summary>")
+        val summaryMatch = summaryRegex.find(fullContent)
+        if (summaryMatch != null) {
+            summaryText = summaryMatch.groupValues[1].trim()
+            contentText = fullContent.replace(summaryMatch.value, "").trim()
+        }
+        MarkdownDetails(
+            summary = summaryText,
+            content = contentText,
+            baseFontSize = (baseFontSize * uiFontScale).sp,
+            uiFontScale = uiFontScale,
+            referenceMap = referenceMap,
+            isJustified = isJustified
+        )
     }
 
     if (footnoteMap.isNotEmpty()) {
@@ -2021,10 +2122,18 @@ fun MarkdownCheckboxItem(
 
 @Composable
 fun MarkdownImage(url: String, alt: String, linkUrl: String?) {
+    val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val imageLoader = remember(context) {
+        coil.ImageLoader.Builder(context)
+            .components {
+                add(coil.decode.SvgDecoder.Factory())
+            }
+            .build()
+    }
     val modifier = Modifier
         .fillMaxWidth()
-        .padding(vertical = 8.dp)
+        .padding(vertical = 6.dp)
         .let {
             if (linkUrl != null) {
                 it.clickable { 
@@ -2036,11 +2145,45 @@ fun MarkdownImage(url: String, alt: String, linkUrl: String?) {
                 }
             } else it
         }
-    AsyncImage(
+    coil.compose.SubcomposeAsyncImage(
         model = url,
+        imageLoader = imageLoader,
         contentDescription = alt,
         modifier = modifier,
-        contentScale = ContentScale.Fit
+        contentScale = ContentScale.Fit,
+        loading = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                )
+            }
+        },
+        error = {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                modifier = Modifier.padding(vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "🖼️ ${alt.ifBlank { "Image" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     )
 }
 
@@ -2251,6 +2394,15 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
     val textHtmlColor = String.format("#%02X%02X%02X", r, g, b)
     val cleanFormula = remember(formula) {
         formula.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            .replace(Regex("""\\begin\{align\*?\}"""), "\\\\begin{aligned}")
+            .replace(Regex("""\\end\{align\*?\}"""), "\\\\end{aligned}")
+    }
+    
+    val lineCount = remember(cleanFormula) {
+        cleanFormula.split("\n", "\\\\").size
+    }
+    val calculatedHeight = remember(lineCount) {
+        (70 + lineCount * 36).coerceIn(70, 500).dp
     }
     
     var renderState by remember(cleanFormula) { mutableStateOf<MathRenderState>(MathRenderState.Loading) }
@@ -2275,7 +2427,8 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
                     align-items: center;
                     margin: 0;
                     padding: 8px;
-                    overflow: hidden;
+                    overflow-x: auto;
+                    overflow-y: hidden;
                 }
                 #math {
                     font-size: 1.2em;
@@ -2341,7 +2494,7 @@ fun ComposeMathBlock(formula: String, fontSize: androidx.compose.ui.unit.TextUni
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 60.dp, max = 150.dp)
+                .heightIn(min = 60.dp, max = calculatedHeight)
                 .padding(4.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -2759,14 +2912,163 @@ data class ParsedHtmlTable(
     val alignments: List<TableColumnAlignment>
 )
 
-fun parseDivAlignment(tag: String): TextAlign? {
-    val lower = tag.lowercase()
-    return when {
-        lower.contains("text-align:\\s*center".toRegex()) || lower.contains("align=[\"']?center".toRegex()) || lower.startsWith("<center") -> TextAlign.Center
-        lower.contains("text-align:\\s*right".toRegex()) || lower.contains("align=[\"']?right".toRegex()) -> TextAlign.Right
-        lower.contains("text-align:\\s*left".toRegex()) || lower.contains("align=[\"']?left".toRegex()) -> TextAlign.Left
-        lower.contains("text-align:\\s*justify".toRegex()) || lower.contains("align=[\"']?justify".toRegex()) -> TextAlign.Justify
+data class DivBoxStyle(
+    val textAlign: TextAlign? = null,
+    val backgroundColor: Color? = null,
+    val borderLeftColor: Color? = null,
+    val borderLeftWidth: Float = 0f,
+    val borderColor: Color? = null,
+    val borderWidth: Float = 0f,
+    val borderRadius: Float = 8f
+) {
+    val isStyledBox: Boolean
+        get() = backgroundColor != null || borderLeftColor != null || borderColor != null
+}
+
+fun parseDivBoxStyle(tag: String): DivBoxStyle {
+    val styleMatch = Regex("""(?i)style\s*=\s*["']([^"']*)["']""").find(tag)
+    val styleContent = styleMatch?.groupValues?.get(1) ?: ""
+    val lower = styleContent.lowercase()
+    val tagLower = tag.lowercase()
+
+    val textAlign = when {
+        lower.contains("text-align:\\s*center".toRegex()) || tagLower.contains("align=[\"']?center".toRegex()) || tagLower.startsWith("<center") -> TextAlign.Center
+        lower.contains("text-align:\\s*right".toRegex()) || tagLower.contains("align=[\"']?right".toRegex()) -> TextAlign.Right
+        lower.contains("text-align:\\s*left".toRegex()) || tagLower.contains("align=[\"']?left".toRegex()) -> TextAlign.Left
+        lower.contains("text-align:\\s*justify".toRegex()) || tagLower.contains("align=[\"']?justify".toRegex()) -> TextAlign.Justify
         else -> null
+    }
+
+    fun parseColor(str: String): Color? {
+        val s = str.trim()
+        return try {
+            if (s.startsWith("#")) {
+                val hex = s.removePrefix("#")
+                when (hex.length) {
+                    3 -> {
+                        val r = hex[0].toString().repeat(2).toInt(16)
+                        val g = hex[1].toString().repeat(2).toInt(16)
+                        val b = hex[2].toString().repeat(2).toInt(16)
+                        Color(android.graphics.Color.rgb(r, g, b))
+                    }
+                    6, 8 -> Color(android.graphics.Color.parseColor("#$hex"))
+                    else -> null
+                }
+            } else if (s.startsWith("rgb", ignoreCase = true)) {
+                val nums = Regex("""\d+""").findAll(s).map { it.value.toInt() }.toList()
+                if (nums.size >= 3) Color(android.graphics.Color.rgb(nums[0], nums[1], nums[2])) else null
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    val bgMatch = Regex("""(?i)background(?:-color)?\s*:\s*([^;"]+)""").find(styleContent)
+    val bgColor = bgMatch?.groupValues?.get(1)?.let { parseColor(it) }
+
+    val borderLeftMatch = Regex("""(?i)border-left\s*:\s*(\d+)px\s+\w+\s+([^;"]+)""").find(styleContent)
+    val blWidth = borderLeftMatch?.groupValues?.get(1)?.toFloatOrNull() ?: 0f
+    val blColor = borderLeftMatch?.groupValues?.get(2)?.let { parseColor(it) }
+
+    val borderMatch = Regex("""(?i)border\s*:\s*(\d+)px\s+\w+\s+([^;"]+)""").find(styleContent)
+    val bWidth = borderMatch?.groupValues?.get(1)?.toFloatOrNull() ?: 0f
+    val bColor = borderMatch?.groupValues?.get(2)?.let { parseColor(it) }
+
+    val brMatch = Regex("""(?i)border-radius\s*:\s*(\d+)px""").find(styleContent)
+    val bRadius = brMatch?.groupValues?.get(1)?.toFloatOrNull() ?: 8f
+
+    return DivBoxStyle(
+        textAlign = textAlign,
+        backgroundColor = bgColor,
+        borderLeftColor = blColor,
+        borderLeftWidth = blWidth,
+        borderColor = bColor,
+        borderWidth = bWidth,
+        borderRadius = bRadius
+    )
+}
+
+fun parseDivAlignment(tag: String): TextAlign? = parseDivBoxStyle(tag).textAlign
+
+@Composable
+fun MarkdownProgressBar(value: Float, max: Float) {
+    val progress = (value / max).coerceIn(0f, 1f)
+    val percentageText = "${(progress * 100).toInt()}%"
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .weight(1f)
+                .height(14.dp)
+                .clip(RoundedCornerShape(7.dp)),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = percentageText,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+@Composable
+fun ComposeStyledBox(
+    style: DivBoxStyle,
+    lines: List<String>,
+    baseFontSize: Int,
+    uiFontScale: Float,
+    referenceMap: Map<String, Pair<String, String?>>,
+    isJustified: Boolean
+) {
+    val shape = RoundedCornerShape(style.borderRadius.dp)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        shape = shape,
+        colors = CardDefaults.cardColors(
+            containerColor = style.backgroundColor ?: MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        ),
+        border = if (style.borderColor != null && style.borderWidth > 0f) {
+            BorderStroke(style.borderWidth.dp, style.borderColor)
+        } else null
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+        ) {
+            if (style.borderLeftColor != null && style.borderLeftWidth > 0f) {
+                Box(
+                    modifier = Modifier
+                        .width(style.borderLeftWidth.coerceAtLeast(3f).dp)
+                        .heightIn(min = 24.dp)
+                        .background(style.borderLeftColor, RoundedCornerShape(2.dp))
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                lines.forEach { line ->
+                    if (line.isNotBlank()) {
+                        MarkdownParagraph(
+                            text = line,
+                            fontSize = (baseFontSize * uiFontScale).sp,
+                            referenceMap = referenceMap,
+                            isJustified = isJustified,
+                            explicitAlignment = style.textAlign
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -3083,25 +3385,57 @@ fun renderInlineMath(content: String, codeBgColor: Color): AnnotatedString {
 
     fun processTokens(expr: String): String {
         var s = expr
+        // Spacing & formatting helpers
+        s = s.replace("\\left", "").replace("\\right", "")
+        s = s.replace("\\{", "{").replace("\\}", "}")
+        s = s.replace("\\,", " ").replace("\\!", "").replace("\\;", " ").replace("\\:", " ")
+        s = s.replace("\\quad", "  ").replace("\\qquad", "    ")
+        
+        // Text & font formatting
+        s = s.replace(Regex("\\\\(text|mathbf|mathrm|textbf|mathit)\\{([^{}]*)\\}")) { m -> m.groupValues[2] }
+
+        // Standard functions
+        s = s.replace(Regex("\\\\(ln|log|exp|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|lim|det|max|min)\\b")) { m -> m.groupValues[1] }
+
         // LaTeX commands
         s = s.replace(Regex("\\\\frac\\{([^}]*)\\}\\{([^}]*)\\}")) { m -> "${m.groupValues[1]}/${m.groupValues[2]}" }
         s = s.replace(Regex("\\\\sqrt\\{([^}]*)\\}")) { m -> "√${m.groupValues[1]}" }
-        s = s.replace("\\times", "×")
-        s = s.replace("\\cdot", "·")
-        s = s.replace("\\pm", "±")
-        s = s.replace("\\mp", "∓")
-        s = s.replace("\\infty", "∞")
+
+        // Symbols
+        s = s.replace("\\times", "×").replace("\\cdot", "·").replace("\\div", "÷")
+        s = s.replace("\\pm", "±").replace("\\mp", "∓").replace("\\infty", "∞")
+        s = s.replace("\\partial", "∂").replace("\\nabla", "∇")
+        s = s.replace("\\int", "∫").replace("\\sum", "∑").replace("\\prod", "∏")
+        s = s.replace("\\leq", "≤").replace("\\geq", "≥").replace("\\neq", "≠")
+        s = s.replace("\\le", "≤").replace("\\ge", "≥").replace("\\ne", "≠")
+        s = s.replace("\\approx", "≈").replace("\\equiv", "≡")
+        s = s.replace("\\rightarrow", "→").replace("\\leftarrow", "←").replace("\\to", "→")
+
+        // Greek uppercase
+        s = s.replace("\\Omega", "Ω").replace("\\Gamma", "Γ").replace("\\Delta", "Δ")
+        s = s.replace("\\Theta", "Θ").replace("\\Lambda", "Λ").replace("\\Xi", "Ξ")
+        s = s.replace("\\Pi", "Π").replace("\\Sigma", "Σ").replace("\\Phi", "Φ").replace("\\Psi", "Ψ")
+
+        // Greek lowercase
         s = s.replace("\\alpha", "α").replace("\\beta", "β").replace("\\gamma", "γ")
         s = s.replace("\\delta", "δ").replace("\\pi", "π").replace("\\sigma", "σ")
-        s = s.replace("\\theta", "θ").replace("\\lambda", "λ").replace("\\mu", "μ")
-        s = s.replace("\\leq", "≤").replace("\\geq", "≥").replace("\\neq", "≠")
-        s = s.replace("\\approx", "≈")
+        s = s.replace("\\theta", "θ").replace("\\lambda", "λ").replace("\\mu", "μ").replace("\\nu", "ν")
+        s = s.replace("\\tau", "τ").replace("\\xi", "ξ").replace("\\zeta", "ζ").replace("\\eta", "η")
+        s = s.replace("\\epsilon", "ε").replace("\\varepsilon", "ε").replace("\\rho", "ρ")
+        s = s.replace("\\psi", "ψ").replace("\\phi", "φ").replace("\\varphi", "φ")
+        s = s.replace("\\omega", "ω").replace("\\chi", "χ").replace("\\kappa", "κ")
+
         // Superscript: ^{...} or ^x
         s = s.replace(Regex("\\^\\{([^}]*)\\}")) { m -> toSup(m.groupValues[1]) }
         s = s.replace(Regex("\\^([0-9a-zA-Z+\\-])")) { m -> toSup(m.groupValues[1]) }
         // Subscript: _{...} or _x
         s = s.replace(Regex("_\\{([^}]*)\\}")) { m -> toSub(m.groupValues[1]) }
         s = s.replace(Regex("_([0-9a-zA-Z])")) { m -> toSub(m.groupValues[1]) }
+
+        // Clean unknown LaTeX commands and lone braces
+        s = s.replace(Regex("\\\\[a-zA-Z]+"), "")
+        s = s.replace("{", "").replace("}", "")
+
         return s
     }
 

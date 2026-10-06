@@ -23,9 +23,12 @@ object MathRenderer {
         val webView = WebView(context)
         
         val cleanCode = mathCode.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+        val normalizedCode = cleanCode
+            .replace(Regex("""\\begin\{align\*?\}"""), "\\\\begin{aligned}")
+            .replace(Regex("""\\end\{align\*?\}"""), "\\\\end{aligned}")
         
         // Escape for JS template string
-        val jsonSafeCode = cleanCode.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "")
+        val jsonSafeCode = normalizedCode.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "")
 
         val htmlContent = """
             <!DOCTYPE html>

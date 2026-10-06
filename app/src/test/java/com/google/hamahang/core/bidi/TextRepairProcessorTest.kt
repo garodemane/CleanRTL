@@ -262,6 +262,8 @@ class TextRepairProcessorTest {
         assertFalse("HTML img tag must be LTR", TextRepairProcessor.isParagraphRtl("<img alt=\"logo\" src=\"icon.jpg\">"))
         assertTrue("Persian paragraph must be RTL", TextRepairProcessor.isParagraphRtl("سلام دنیا"))
         assertTrue("Persian paragraph with code symbols must be RTL", TextRepairProcessor.isParagraphRtl("متن فارسی با نماد }"))
+        assertFalse("Progress tag must be LTR", TextRepairProcessor.isParagraphRtl("<progress value=\"75\" max=\"100\"> 75% </progress> 75%"))
+        assertFalse("Div style tag must be LTR", TextRepairProcessor.isParagraphRtl("<div style=\"background-color: #e3f2fd; border-left: 5px solid #2196F3;\">"))
     }
 }
 

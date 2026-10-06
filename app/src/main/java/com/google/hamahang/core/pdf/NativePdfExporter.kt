@@ -540,8 +540,93 @@ object NativePdfExporter {
                 }
             }
 
-            // HTML Div / Center text alignment container
+            // HTML Progress Bar block (<progress value="75" max="100"> 75% </progress>)
+            if (trimmedLower.startsWith("<progress")) {
+                val progressMatch = Regex("""(?i)<progress\s+value=["']?(\d+(?:\.\d+)?)["']?(?:\s+max=["']?(\d+(?:\.\d+)?)["']?)?[^>]*>""").find(trimmedClean)
+                if (progressMatch != null) {
+                    val value = progressMatch.groupValues[1].toFloatOrNull() ?: 0f
+                    val max = progressMatch.groupValues[2].toFloatOrNull().takeIf { it != null && it > 0 } ?: 100f
+                    val fraction = (value / max).coerceIn(0f, 1f)
+                    val percentStr = "${(fraction * 100).toInt()}%"
+
+                    val barHeight = 12f
+                    val blockHeight = 24f
+                    if (yOffset + blockHeight > pageHeight - margin) {
+                        pdfDocument.finishPage(currentPage)
+                        currentPageNumber++
+                        pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                        currentPage = pdfDocument.startPage(pageInfo)
+                        canvas = currentPage.canvas
+                        yOffset = margin
+                    }
+
+                    val labelPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                        textSize = baseFontSize * 0.9f
+                        typeface = boldTypeface
+                        color = Color.rgb(26, 115, 232)
+                    }
+                    val labelWidth = labelPaint.measureText(percentStr)
+                    val trackWidth = printableWidth - labelWidth - 16f
+
+                    // Draw track
+                    val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.rgb(230, 235, 240)
+                        style = Paint.Style.FILL
+                    }
+                    canvas.drawRoundRect(margin, yOffset + 4f, margin + trackWidth, yOffset + 4f + barHeight, 6f, 6f, trackPaint)
+
+                    // Draw progress fill
+                    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = Color.rgb(26, 115, 232)
+                        style = Paint.Style.FILL
+                    }
+                    val fillWidth = trackWidth * fraction
+                    if (fillWidth > 0f) {
+                        canvas.drawRoundRect(margin, yOffset + 4f, margin + fillWidth, yOffset + 4f + barHeight, 6f, 6f, fillPaint)
+                    }
+
+                    // Draw percentage text
+                    canvas.drawText(percentStr, margin + trackWidth + 12f, yOffset + 4f + barHeight - 1f, labelPaint)
+                    yOffset += blockHeight + baseFontSize * 0.3f
+                    idx++
+                    continue
+                }
+            }
+
+            // HTML Div / Center text alignment container / Styled Box
             if (trimmedLower.startsWith("<div") || trimmedLower.startsWith("<center")) {
+                val styleMatch = Regex("""(?i)style\s*=\s*["']([^"']*)["']""").find(trimmedClean)
+                val styleContent = styleMatch?.groupValues?.get(1) ?: ""
+
+                fun parsePdfColor(str: String): Int? {
+                    val s = str.trim()
+                    return try {
+                        if (s.startsWith("#")) {
+                            val hex = s.removePrefix("#")
+                            when (hex.length) {
+                                3 -> {
+                                    val r = hex[0].toString().repeat(2).toInt(16)
+                                    val g = hex[1].toString().repeat(2).toInt(16)
+                                    val b = hex[2].toString().repeat(2).toInt(16)
+                                    Color.rgb(r, g, b)
+                                }
+                                6, 8 -> Color.parseColor("#$hex")
+                                else -> null
+                            }
+                        } else if (s.startsWith("rgb", ignoreCase = true)) {
+                            val nums = Regex("""\d+""").findAll(s).map { it.value.toInt() }.toList()
+                            if (nums.size >= 3) Color.rgb(nums[0], nums[1], nums[2]) else null
+                        } else null
+                    } catch (e: Exception) { null }
+                }
+
+                val bgMatch = Regex("""(?i)background(?:-color)?\s*:\s*([^;"]+)""").find(styleContent)
+                val pdfBgColor = bgMatch?.groupValues?.get(1)?.let { parsePdfColor(it) }
+
+                val borderLeftMatch = Regex("""(?i)border-left\s*:\s*(\d+)px\s+\w+\s+([^;"]+)""").find(styleContent)
+                val pdfBlWidth = borderLeftMatch?.groupValues?.get(1)?.toFloatOrNull() ?: 0f
+                val pdfBlColor = borderLeftMatch?.groupValues?.get(2)?.let { parsePdfColor(it) }
+
                 val alignment = when {
                     trimmedLower.contains("text-align:\\s*center".toRegex()) || trimmedLower.contains("align=[\"']?center".toRegex()) || trimmedLower.startsWith("<center") -> Layout.Alignment.ALIGN_CENTER
                     trimmedLower.contains("text-align:\\s*right".toRegex()) || trimmedLower.contains("align=[\"']?right".toRegex()) -> Layout.Alignment.ALIGN_OPPOSITE
@@ -556,7 +641,9 @@ object NativePdfExporter {
                         .replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(div|center)[\\s\\u00A0]*>$"), "")
                         .trim()
                     if (inner.isNotEmpty()) {
-                        divContentLines.add(inner)
+                        inner.split(Regex("(?i)<br\\s*/?>")).forEach {
+                            if (it.isNotBlank()) divContentLines.add(it.trim())
+                        }
                     }
                     idx++
                 } else {
@@ -569,36 +656,49 @@ object NativePdfExporter {
                             break
                         }
                         if (line.isNotBlank()) {
-                            divContentLines.add(line)
+                            line.split(Regex("(?i)<br\\s*/?>")).forEach {
+                                if (it.isNotBlank()) divContentLines.add(it.trim())
+                            }
                         }
                         k++
                     }
                     idx = k
                 }
-                for (divLine in divContentLines) {
-                    val spannable = parseMarkdownAndHtmlToSpannable(
-                        context, divLine, baseFontSize, boldTypeface, italicTypeface, referenceMap
-                    )
-                    textPaint.textSize = baseFontSize
-                    textPaint.typeface = regularTypeface
-                    textPaint.color = Color.BLACK
-                    val isRtl = TextRepairProcessor.isParagraphRtl(divLine)
-                    val textDir = if (alignment == Layout.Alignment.ALIGN_CENTER) {
-                        if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
-                    } else if (alignment == Layout.Alignment.ALIGN_OPPOSITE) {
-                        TextDirectionHeuristics.RTL
-                    } else if (alignment == Layout.Alignment.ALIGN_NORMAL) {
-                        TextDirectionHeuristics.LTR
-                    } else {
-                        if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+
+                val isStyledBox = pdfBgColor != null || pdfBlColor != null
+                if (isStyledBox) {
+                    val innerLeftPadding = if (pdfBlColor != null) (pdfBlWidth.coerceAtLeast(4f) + 12f) else 12f
+                    val contentWidth = printableWidth - innerLeftPadding - 12f
+
+                    val layouts = divContentLines.map { divLine ->
+                        val spannable = parseMarkdownAndHtmlToSpannable(
+                            context, divLine, baseFontSize, boldTypeface, italicTypeface, referenceMap, imageBitmaps
+                        )
+                        textPaint.textSize = baseFontSize
+                        textPaint.typeface = regularTypeface
+                        textPaint.color = Color.BLACK
+                        val isRtl = TextRepairProcessor.isParagraphRtl(divLine)
+                        val textDir = if (alignment == Layout.Alignment.ALIGN_CENTER) {
+                            if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                        } else if (alignment == Layout.Alignment.ALIGN_OPPOSITE) {
+                            TextDirectionHeuristics.RTL
+                        } else if (alignment == Layout.Alignment.ALIGN_NORMAL) {
+                            TextDirectionHeuristics.LTR
+                        } else {
+                            if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                        }
+                        val layoutAlign = alignment ?: (if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL)
+                        StaticLayout.Builder.obtain(spannable, 0, spannable.length, textPaint, contentWidth.toInt())
+                            .setAlignment(layoutAlign)
+                            .setTextDirection(textDir)
+                            .setLineSpacing(0f, 1.25f)
+                            .build()
                     }
-                    val layoutAlign = alignment ?: (if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL)
-                    val staticLayout = StaticLayout.Builder.obtain(spannable, 0, spannable.length, textPaint, printableWidth.toInt())
-                        .setAlignment(layoutAlign)
-                        .setTextDirection(textDir)
-                        .setLineSpacing(0f, 1.25f)
-                        .build()
-                    if (yOffset + staticLayout.height > pageHeight - margin) {
+
+                    val totalContentHeight = layouts.sumOf { it.height } + (layouts.size - 1) * (baseFontSize * 0.3f)
+                    val boxHeight = totalContentHeight + 20f
+
+                    if (yOffset + boxHeight > pageHeight - margin) {
                         pdfDocument.finishPage(currentPage)
                         currentPageNumber++
                         pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
@@ -606,11 +706,72 @@ object NativePdfExporter {
                         canvas = currentPage.canvas
                         yOffset = margin
                     }
-                    canvas.save()
-                    canvas.translate(margin, yOffset)
-                    staticLayout.draw(canvas)
-                    canvas.restore()
-                    yOffset += staticLayout.height + baseFontSize * 0.4f
+
+                    // Draw background
+                    val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = pdfBgColor ?: Color.rgb(245, 245, 245)
+                        style = Paint.Style.FILL
+                    }
+                    canvas.drawRoundRect(margin, yOffset, margin + printableWidth, yOffset + boxHeight, 8f, 8f, bgPaint)
+
+                    // Draw left accent bar
+                    if (pdfBlColor != null) {
+                        val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = pdfBlColor
+                            style = Paint.Style.FILL
+                        }
+                        val barW = pdfBlWidth.coerceAtLeast(4f)
+                        canvas.drawRoundRect(margin, yOffset, margin + barW, yOffset + boxHeight, 4f, 4f, barPaint)
+                    }
+
+                    // Draw text inside
+                    var currentY = yOffset + 10f
+                    for (layout in layouts) {
+                        canvas.save()
+                        canvas.translate(margin + innerLeftPadding, currentY)
+                        layout.draw(canvas)
+                        canvas.restore()
+                        currentY += layout.height + baseFontSize * 0.3f
+                    }
+                    yOffset += boxHeight + baseFontSize * 0.5f
+                } else {
+                    for (divLine in divContentLines) {
+                        val spannable = parseMarkdownAndHtmlToSpannable(
+                            context, divLine, baseFontSize, boldTypeface, italicTypeface, referenceMap, imageBitmaps
+                        )
+                        textPaint.textSize = baseFontSize
+                        textPaint.typeface = regularTypeface
+                        textPaint.color = Color.BLACK
+                        val isRtl = TextRepairProcessor.isParagraphRtl(divLine)
+                        val textDir = if (alignment == Layout.Alignment.ALIGN_CENTER) {
+                            if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                        } else if (alignment == Layout.Alignment.ALIGN_OPPOSITE) {
+                            TextDirectionHeuristics.RTL
+                        } else if (alignment == Layout.Alignment.ALIGN_NORMAL) {
+                            TextDirectionHeuristics.LTR
+                        } else {
+                            if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                        }
+                        val layoutAlign = alignment ?: (if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL)
+                        val staticLayout = StaticLayout.Builder.obtain(spannable, 0, spannable.length, textPaint, printableWidth.toInt())
+                            .setAlignment(layoutAlign)
+                            .setTextDirection(textDir)
+                            .setLineSpacing(0f, 1.25f)
+                            .build()
+                        if (yOffset + staticLayout.height > pageHeight - margin) {
+                            pdfDocument.finishPage(currentPage)
+                            currentPageNumber++
+                            pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                            currentPage = pdfDocument.startPage(pageInfo)
+                            canvas = currentPage.canvas
+                            yOffset = margin
+                        }
+                        canvas.save()
+                        canvas.translate(margin, yOffset)
+                        staticLayout.draw(canvas)
+                        canvas.restore()
+                        yOffset += staticLayout.height + baseFontSize * 0.4f
+                    }
                 }
                 continue
             }
@@ -1194,7 +1355,14 @@ object NativePdfExporter {
         s = s.replace("\\left", "").replace("\\right", "")
         s = s.replace("\\{", "{").replace("\\}", "}")
         s = s.replace("\\,", " ").replace("\\!", "").replace("\\;", " ").replace("\\:", " ")
+        s = s.replace("\\quad", "  ").replace("\\qquad", "    ")
         s = s.replace("\\\\", "\n") // LaTeX line break
+
+        // Step 1a: Text & font formatting
+        s = s.replace(Regex("\\\\(text|mathbf|mathrm|textbf|mathit)\\{([^{}]*)\\}")) { m -> m.groupValues[2] }
+
+        // Step 1b: Standard math functions
+        s = s.replace(Regex("\\\\(ln|log|exp|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|lim|det|max|min)\\b")) { m -> m.groupValues[1] }
 
         // Step 1b: Handle matrix environments — convert to plain text table
         val matrixEnvRegex = Regex("\\\\begin\\s*\\{(p?matrix|b?matrix|Bmatrix|vmatrix|Vmatrix|array)\\}([\\s\\S]*?)\\\\end\\s*\\{\\1\\}", RegexOption.DOT_MATCHES_ALL)
