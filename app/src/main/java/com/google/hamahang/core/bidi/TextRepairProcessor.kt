@@ -26,6 +26,8 @@ object TextRepairProcessor {
         var inMermaidBlock = false
         var inMathBlock = false
         var inPreBlock = false
+        var inTableBlock = false
+        var inDetailsBlock = false
         val repairedParagraphs = paragraphs.map { paragraph ->
             val trimmed = paragraph.trim()
             // Strip bidi marks to robustly identify code blocks and language starts
@@ -39,6 +41,40 @@ object TextRepairProcessor {
                 if (cleanLower.contains("</pre>")) {
                     inPreBlock = false
                 }
+                return@map paragraph
+            }
+
+            if (cleanLower.startsWith("<table")) {
+                inTableBlock = true
+                return@map paragraph
+            }
+            if (inTableBlock) {
+                if (cleanLower.contains("</table>")) {
+                    inTableBlock = false
+                }
+                return@map paragraph
+            }
+
+            if (cleanLower.startsWith("<details")) {
+                inDetailsBlock = true
+                return@map paragraph
+            }
+            if (inDetailsBlock) {
+                if (cleanLower.contains("</details>")) {
+                    inDetailsBlock = false
+                }
+                return@map paragraph
+            }
+
+            // HTML structural lines that should NEVER be processed as markdown paragraphs
+            if (cleanLower.startsWith("<tr") || cleanLower.startsWith("</tr") ||
+                cleanLower.startsWith("<td") || cleanLower.startsWith("</td") ||
+                cleanLower.startsWith("<th") || cleanLower.startsWith("</th") ||
+                cleanLower.startsWith("</table") ||
+                cleanLower.startsWith("<div") || cleanLower.startsWith("</div") ||
+                cleanLower.startsWith("<center") || cleanLower.startsWith("</center") ||
+                cleanLower.startsWith("<p align=") || cleanLower.startsWith("<p style=") ||
+                cleanLower == "<p>" || cleanLower == "</p>") {
                 return@map paragraph
             }
 
@@ -86,15 +122,6 @@ object TextRepairProcessor {
             var result = paragraph
 
             if (isRtl) {
-                // Protect HTML tags first to avoid normalization/isolation corruption
-                val htmlPlaceholderMap = mutableListOf<String>()
-                val htmlTagRegex = Regex("<[^>]+>")
-                result = htmlTagRegex.replace(result) { matchResult ->
-                    val placeholderChar = ('\uE000'.code + htmlPlaceholderMap.size).toChar().toString()
-                    htmlPlaceholderMap.add(matchResult.value)
-                    placeholderChar
-                }
-
                 // Protect inline math runs before doing bidi repair
                 val mathPlaceholderMap = mutableListOf<String>()
                 val mathRegex = Regex("(\\$\\$\\s*.*?\\s*\\$\\$|\\$\\s*.*?\\s*\\$)")
@@ -111,7 +138,7 @@ object TextRepairProcessor {
                     result = normalizeCharacters(result)
                 }
 
-                // Step 2: Safe isolation of LTR runs (preserving markdown tokens)
+                // Step 2: Safe isolation of LTR runs (preserving HTML tags and markdown tokens)
                 result = isolateLtrSubRuns(result)
 
                 // Step 3: Handle punctuation at sentence ends
@@ -121,12 +148,6 @@ object TextRepairProcessor {
                 mathPlaceholderMap.forEachIndexed { index, originalMath ->
                     val placeholder = "MATHPLCHLDR$index"
                     result = result.replace(placeholder, originalMath)
-                }
-
-                // Restore HTML tags from placeholders
-                htmlPlaceholderMap.forEachIndexed { index, originalTag ->
-                    val placeholderChar = ('\uE000'.code + index).toChar().toString()
-                    result = result.replace(placeholderChar, originalTag)
                 }
             }
 

@@ -525,6 +525,7 @@ object NativePdfExporter {
                         italicTypeface = italicTypeface,
                         isTableRtl = TextRepairProcessor.isParagraphRtl(tableLines.joinToString(" ")),
                         imageBitmaps = imageBitmaps,
+                        referenceMap = referenceMap,
                         onNewPage = {
                             pdfDocument.finishPage(currentPage)
                             currentPageNumber++
@@ -593,8 +594,11 @@ object NativePdfExporter {
                 }
             }
 
-            // HTML Div / Center text alignment container / Styled Box
-            if (trimmedLower.startsWith("<div") || trimmedLower.startsWith("<center")) {
+            // HTML Div / Center / P text alignment container / Styled Box
+            val isAlignmentBlock = trimmedLower.startsWith("<div") || 
+                                   trimmedLower.startsWith("<center") || 
+                                   (trimmedLower.startsWith("<p") && (trimmedLower.contains("align=") || trimmedLower.contains("text-align") || trimmedLower.contains("style=")))
+            if (isAlignmentBlock) {
                 val styleMatch = Regex("""(?i)style\s*=\s*["']([^"']*)["']""").find(trimmedClean)
                 val styleContent = styleMatch?.groupValues?.get(1) ?: ""
 
@@ -633,12 +637,12 @@ object NativePdfExporter {
                     trimmedLower.contains("text-align:\\s*left".toRegex()) || trimmedLower.contains("align=[\"']?left".toRegex()) -> Layout.Alignment.ALIGN_NORMAL
                     else -> null
                 }
-                val isClosingSameLine = trimmedLower.contains("</div>") || trimmedLower.contains("</center>")
+                val isClosingSameLine = trimmedLower.contains("</div>") || trimmedLower.contains("</center>") || trimmedLower.contains("</p>")
                 val divContentLines = mutableListOf<String>()
                 if (isClosingSameLine) {
                     val inner = trimmedClean
-                        .replace(Regex("(?i)^<[\\s\\u00A0]*(div[^>]*|center)[\\s\\u00A0]*>"), "")
-                        .replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(div|center)[\\s\\u00A0]*>$"), "")
+                        .replace(Regex("(?i)^<[\\s\\u00A0]*(div[^>]*|center|p[^>]*)[\\s\\u00A0]*>"), "")
+                        .replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(div|center|p)[\\s\\u00A0]*>$"), "")
                         .trim()
                     if (inner.isNotEmpty()) {
                         inner.split(Regex("(?i)<br\\s*/?>")).forEach {
@@ -651,7 +655,8 @@ object NativePdfExporter {
                     while (k < paragraphs.size) {
                         val line = paragraphs[k]
                         val lineClean = line.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim().lowercase()
-                        if (lineClean.startsWith("</div") || lineClean.startsWith("</center") || lineClean.contains("</div>") || lineClean.contains("</center>")) {
+                        if (lineClean.startsWith("</div") || lineClean.startsWith("</center") || lineClean.startsWith("</p") ||
+                            lineClean.contains("</div>") || lineClean.contains("</center>") || lineClean.contains("</p>")) {
                             k++
                             break
                         }
@@ -735,7 +740,169 @@ object NativePdfExporter {
                     }
                     yOffset += boxHeight + baseFontSize * 0.5f
                 } else {
-                    for (divLine in divContentLines) {
+                    var dIdx = 0
+                    while (dIdx < divContentLines.size) {
+                        val divLine = divContentLines[dIdx]
+                        val dClean = divLine.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                        val dLower = dClean.lowercase()
+
+                        // 1. HTML table inside container
+                        if (dLower.startsWith("<table")) {
+                            val tableLines = mutableListOf<String>()
+                            var tk = dIdx
+                            while (tk < divContentLines.size) {
+                                val tLine = divContentLines[tk]
+                                tableLines.add(tLine)
+                                if (tLine.trim().lowercase().contains("</table>")) {
+                                    tk++
+                                    break
+                                }
+                                tk++
+                            }
+                            val parsed = parseHtmlTable(tableLines.joinToString("\n"))
+                            if (parsed != null) {
+                                yOffset = drawPdfTable(
+                                    context = context,
+                                    pdfDocument = pdfDocument,
+                                    canvas = canvas,
+                                    headerColumns = parsed.headerColumns,
+                                    dataRows = parsed.dataRows,
+                                    alignments = parsed.alignments,
+                                    baseFontSize = baseFontSize,
+                                    margin = margin,
+                                    yStart = yOffset,
+                                    width = printableWidth,
+                                    pageHeight = pageHeight.toFloat(),
+                                    pageWidth = pageWidth,
+                                    regularTypeface = regularTypeface,
+                                    boldTypeface = boldTypeface,
+                                    italicTypeface = italicTypeface,
+                                    isTableRtl = TextRepairProcessor.isParagraphRtl(tableLines.joinToString(" ")),
+                                    imageBitmaps = imageBitmaps,
+                                    referenceMap = referenceMap,
+                                    onNewPage = {
+                                        pdfDocument.finishPage(currentPage)
+                                        currentPageNumber++
+                                        pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                                        currentPage = pdfDocument.startPage(pageInfo)
+                                        canvas = currentPage.canvas
+                                        yOffset = margin
+                                        canvas
+                                    }
+                                )
+                                dIdx = tk
+                                continue
+                            }
+                        }
+
+                        // 2. Markdown table inside container
+                        if (dClean.startsWith("|") && dClean.endsWith("|")) {
+                            if (dIdx + 1 < divContentLines.size) {
+                                val nextLine = divContentLines[dIdx + 1]
+                                val nextClean = nextLine.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                                if (isTableDivider(nextClean)) {
+                                    val headerCols = parseTableLine(dClean)
+                                    val dividerCols = parseTableLine(nextClean)
+                                    val alignments = dividerCols.map { parseAlignment(it) }
+                                    val dataRows = mutableListOf<List<String>>()
+                                    var rk = dIdx + 2
+                                    while (rk < divContentLines.size) {
+                                        val rLine = divContentLines[rk]
+                                        val rClean = rLine.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                                        if (rClean.startsWith("|") && rClean.endsWith("|")) {
+                                            dataRows.add(parseTableLine(rClean))
+                                            rk++
+                                        } else break
+                                    }
+                                    val fullTableText = (listOf(dClean) + dataRows.flatten()).joinToString(" ")
+                                    yOffset = drawPdfTable(
+                                        context = context,
+                                        pdfDocument = pdfDocument,
+                                        canvas = canvas,
+                                        headerColumns = headerCols,
+                                        dataRows = dataRows,
+                                        alignments = alignments,
+                                        baseFontSize = baseFontSize,
+                                        margin = margin,
+                                        yStart = yOffset,
+                                        width = printableWidth,
+                                        pageHeight = pageHeight.toFloat(),
+                                        pageWidth = pageWidth,
+                                        regularTypeface = regularTypeface,
+                                        boldTypeface = boldTypeface,
+                                        italicTypeface = italicTypeface,
+                                        isTableRtl = TextRepairProcessor.isParagraphRtl(fullTableText),
+                                        imageBitmaps = imageBitmaps,
+                                        referenceMap = referenceMap,
+                                        onNewPage = {
+                                            pdfDocument.finishPage(currentPage)
+                                            currentPageNumber++
+                                            pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                                            currentPage = pdfDocument.startPage(pageInfo)
+                                            canvas = currentPage.canvas
+                                            yOffset = margin
+                                            canvas
+                                        }
+                                    )
+                                    dIdx = rk
+                                    continue
+                                }
+                            }
+                        }
+
+                        // 3. Progress bar inside container
+                        if (dLower.startsWith("<progress")) {
+                            val progressMatch = Regex("""(?i)<progress\s+value=["']?(\d+(?:\.\d+)?)["']?(?:\s+max=["']?(\d+(?:\.\d+)?)["']?)?[^>]*>""").find(dClean)
+                            if (progressMatch != null) {
+                                val value = progressMatch.groupValues[1].toFloatOrNull() ?: 0f
+                                val max = progressMatch.groupValues[2].toFloatOrNull().takeIf { it != null && it > 0 } ?: 100f
+                                val fraction = (value / max).coerceIn(0f, 1f)
+                                val percentStr = "${(fraction * 100).toInt()}%"
+
+                                val barHeight = 12f
+                                val blockHeight = 24f
+                                if (yOffset + blockHeight > pageHeight - margin) {
+                                    pdfDocument.finishPage(currentPage)
+                                    currentPageNumber++
+                                    pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                                    currentPage = pdfDocument.startPage(pageInfo)
+                                    canvas = currentPage.canvas
+                                    yOffset = margin
+                                }
+                                val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                    color = Color.rgb(230, 233, 238)
+                                    style = Paint.Style.FILL
+                                }
+                                val trackWidth = (printableWidth - 60f).coerceAtLeast(80f)
+                                canvas.drawRoundRect(margin, yOffset + 4f, margin + trackWidth, yOffset + 4f + barHeight, 6f, 6f, trackPaint)
+
+                                val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                    color = Color.rgb(26, 115, 232)
+                                    style = Paint.Style.FILL
+                                }
+                                val fillWidth = trackWidth * fraction
+                                if (fillWidth > 0f) {
+                                    canvas.drawRoundRect(margin, yOffset + 4f, margin + fillWidth, yOffset + 4f + barHeight, 6f, 6f, fillPaint)
+                                }
+                                val progLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                    textSize = baseFontSize * 0.8f
+                                    typeface = regularTypeface
+                                    color = Color.rgb(80, 80, 80)
+                                }
+                                canvas.drawText(percentStr, margin + trackWidth + 12f, yOffset + 4f + barHeight - 1f, progLabelPaint)
+                                yOffset += blockHeight + baseFontSize * 0.3f
+                                dIdx++
+                                continue
+                            }
+                        }
+
+                        // 4. Lone closing or empty tag - skip
+                        if (dLower == "</div>" || dLower == "</center>" || dLower == "</p>" || dLower == "<p>" || dClean.isEmpty()) {
+                            dIdx++
+                            continue
+                        }
+
+                        // 5. Standard paragraph with alignment
                         val spannable = parseMarkdownAndHtmlToSpannable(
                             context, divLine, baseFontSize, boldTypeface, italicTypeface, referenceMap, imageBitmaps
                         )
@@ -771,11 +938,12 @@ object NativePdfExporter {
                         staticLayout.draw(canvas)
                         canvas.restore()
                         yOffset += staticLayout.height + baseFontSize * 0.4f
+                        dIdx++
                     }
                 }
                 continue
             }
-            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center")) {
+            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center") || trimmedLower.startsWith("</p") || trimmedLower == "<p>") {
                 idx++
                 continue
             }
@@ -837,6 +1005,7 @@ object NativePdfExporter {
                             italicTypeface = italicTypeface,
                             isTableRtl = TextRepairProcessor.isParagraphRtl(cleanParagraph),
                             imageBitmaps = imageBitmaps,
+                            referenceMap = referenceMap,
                             onNewPage = {
                                 pdfDocument.finishPage(currentPage)
                                 currentPageNumber++
@@ -1512,13 +1681,39 @@ object NativePdfExporter {
     private fun parseTableLine(line: String): List<String> {
         val trimmed = line.trim()
         if (!trimmed.startsWith("|")) return emptyList()
-        val rawParts = trimmed.split("|")
         val parts = mutableListOf<String>()
-        for (idx in 1 until rawParts.size - 1) {
-            parts.add(rawParts[idx].trim())
+        val current = StringBuilder()
+        var bracketDepth = 0
+        var parenDepth = 0
+        var isEscaped = false
+
+        for (i in 1 until trimmed.length) {
+            val c = trimmed[i]
+            if (isEscaped) {
+                current.append(c)
+                isEscaped = false
+                continue
+            }
+            if (c == '\\') {
+                isEscaped = true
+                current.append(c)
+                continue
+            }
+            if (c == '[') bracketDepth++
+            else if (c == ']' && bracketDepth > 0) bracketDepth--
+            else if (c == '(') parenDepth++
+            else if (c == ')' && parenDepth > 0) parenDepth--
+
+            if (c == '|' && bracketDepth == 0 && parenDepth == 0) {
+                parts.add(current.toString().trim())
+                current.clear()
+            } else {
+                current.append(c)
+            }
         }
-        if (rawParts.size <= 2 && trimmed.contains("|")) {
-            return trimmed.split("|").map { it.trim() }.filter { it.isNotEmpty() }
+        val remaining = current.toString().trim()
+        if (remaining.isNotEmpty()) {
+            parts.add(remaining)
         }
         return parts
     }
@@ -1651,6 +1846,7 @@ object NativePdfExporter {
         italicTypeface: Typeface,
         isTableRtl: Boolean,
         imageBitmaps: Map<String, android.graphics.Bitmap>,
+        referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
         onNewPage: () -> Canvas
     ): Float {
         var currentCanvas = canvas
@@ -1703,7 +1899,7 @@ object NativePdfExporter {
                     paint.textSize,
                     boldTypeface,
                     italicTypeface,
-                    emptyMap(),
+                    referenceMap,
                     imageBitmaps
                 )
 

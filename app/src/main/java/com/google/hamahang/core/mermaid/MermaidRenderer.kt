@@ -40,7 +40,19 @@ object MermaidRenderer {
                         startOnLoad: true,
                         theme: '$mermaidTheme',
                         securityLevel: 'loose',
-                        fontFamily: 'Vazirmatn, sans-serif'
+                        fontFamily: 'Vazirmatn, sans-serif',
+                        gantt: {
+                            titleTopMargin: 25,
+                            barHeight: 24,
+                            barGap: 4,
+                            topPadding: 50,
+                            sidePadding: 75,
+                            fontSize: 12,
+                            sectionFontSize: 12,
+                            numberSectionStyles: 4,
+                            axisFormat: '%Y-%m-%d',
+                            useMaxWidth: false
+                        }
                     });
                     
                     window.onload = function() {
@@ -110,6 +122,15 @@ object MermaidRenderer {
                     }
                     #mermaid-container {
                         display: inline-block;
+                    }
+                    text {
+                        font-family: 'Vazirmatn', sans-serif !important;
+                    }
+                    .titleText, text.titleText, #gantt-title-text {
+                        font-family: 'Vazirmatn', sans-serif !important;
+                        font-size: 14px !important;
+                        text-anchor: middle !important;
+                        unicode-bidi: plaintext !important;
                     }
                 </style>
             </head>

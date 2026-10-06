@@ -294,7 +294,26 @@ object HtmlExporter {
                 continue
             }
 
-            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center")) {
+            // HTML P block with alignment or styling (<p align="..." or <p style="...")
+            if (trimmedLower.startsWith("<p") && (trimmedLower.contains("align=") || trimmedLower.contains("text-align") || trimmedLower.contains("style="))) {
+                val pLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    pLines.add(line)
+                    if (line.trim().lowercase().contains("</p>")) {
+                        k++
+                        break
+                    }
+                    k++
+                }
+                val fullPHtml = pLines.joinToString("\n")
+                htmlContent.append("$fullPHtml\n")
+                idx = k
+                continue
+            }
+
+            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center") || trimmedLower.startsWith("</p") || trimmedLower == "<p>") {
                 idx++
                 continue
             }
@@ -1211,15 +1230,59 @@ object HtmlExporter {
     private fun parseTableLine(line: String): List<String> {
         val trimmed = line.trim()
         if (!trimmed.startsWith("|")) return emptyList()
-        val rawParts = trimmed.split("|")
-        val parts = mutableListOf<String>()
-        for (idx in 1 until rawParts.size - 1) {
-            parts.add(rawParts[idx].trim())
+
+        val cells = mutableListOf<String>()
+        val currentCell = StringBuilder()
+        var bracketDepth = 0
+        var parenDepth = 0
+        var isEscaped = false
+
+        for (i in 1 until trimmed.length) {
+            val char = trimmed[i]
+            if (isEscaped) {
+                currentCell.append(char)
+                isEscaped = false
+                continue
+            }
+            when (char) {
+                '\\' -> {
+                    isEscaped = true
+                    currentCell.append(char)
+                }
+                '[' -> {
+                    bracketDepth++
+                    currentCell.append(char)
+                }
+                ']' -> {
+                    if (bracketDepth > 0) bracketDepth--
+                    currentCell.append(char)
+                }
+                '(' -> {
+                    parenDepth++
+                    currentCell.append(char)
+                }
+                ')' -> {
+                    if (parenDepth > 0) parenDepth--
+                    currentCell.append(char)
+                }
+                '|' -> {
+                    if (bracketDepth == 0 && parenDepth == 0) {
+                        cells.add(currentCell.toString().trim())
+                        currentCell.clear()
+                    } else {
+                        currentCell.append(char)
+                    }
+                }
+                else -> currentCell.append(char)
+            }
         }
-        if (rawParts.size <= 2 && trimmed.contains("|")) {
-            return trimmed.split("|").map { it.trim() }.filter { it.isNotEmpty() }
+        if (currentCell.isNotEmpty()) {
+            val lastStr = currentCell.toString().trim()
+            if (lastStr.isNotEmpty()) {
+                cells.add(lastStr)
+            }
         }
-        return parts
+        return cells
     }
 
     private fun parseAlignment(dividerCell: String): TableColumnAlignment {
@@ -1342,10 +1405,10 @@ object HtmlExporter {
         })
 
         // 11.0. Inline image links: [![alt](img)](url)
-        res = res.replace(Regex("\\[!\\[([^\\]]*)\\]\\([^\\)]+?\\)\\]\\(([^\\)]+?)\\)")) { match ->
+        res = res.replace(Regex("\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)")) { match ->
             val alt = match.groupValues[1].ifEmpty { "image" }
-            val rawImgUrl = match.value.substringAfter("](").substringBefore(")]").trim()
-            val rawLinkUrl = match.groupValues[2].trim()
+            val rawImgUrl = match.groupValues[2].trim()
+            val rawLinkUrl = match.groupValues[3].trim()
             val imgUrlClean = rawImgUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
             val linkUrlClean = rawLinkUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
             val imgUrl = imgUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: imgUrlClean

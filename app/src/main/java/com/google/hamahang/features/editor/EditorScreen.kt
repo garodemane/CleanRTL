@@ -1576,7 +1576,8 @@ fun MarkdownPreviewPaneContents(
                     headerColumns = parsed.headerColumns,
                     dataRows = parsed.dataRows,
                     alignments = parsed.alignments,
-                    baseFontSize = baseFontSize
+                    baseFontSize = baseFontSize,
+                    referenceMap = referenceMap
                 )
                 idx = k
                 continue
@@ -1595,16 +1596,19 @@ fun MarkdownPreviewPaneContents(
             }
         }
 
-        // Check if this line is an HTML div / center alignment container
-        if (cleanTrimmedLower.startsWith("<div") || cleanTrimmedLower.startsWith("<center")) {
+        // Check if this line is an HTML div / center / p alignment container
+        val isAlignmentBlock = cleanTrimmedLower.startsWith("<div") || 
+                               cleanTrimmedLower.startsWith("<center") || 
+                               (cleanTrimmedLower.startsWith("<p") && (cleanTrimmedLower.contains("align=") || cleanTrimmedLower.contains("text-align") || cleanTrimmedLower.contains("style=")))
+        if (isAlignmentBlock) {
             val divStyle = parseDivBoxStyle(cleanTrimmed)
-            val isClosingSameLine = cleanTrimmedLower.contains("</div>") || cleanTrimmedLower.contains("</center>")
+            val isClosingSameLine = cleanTrimmedLower.contains("</div>") || cleanTrimmedLower.contains("</center>") || cleanTrimmedLower.contains("</p>")
             val divContentLines = mutableListOf<String>()
 
             if (isClosingSameLine) {
                 val inner = cleanTrimmed
-                    .replace(Regex("(?i)^<[\\s\\u00A0]*(div[^>]*|center)[\\s\\u00A0]*>"), "")
-                    .replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(div|center)[\\s\\u00A0]*>$"), "")
+                    .replace(Regex("(?i)^<[\\s\\u00A0]*(div[^>]*|center|p[^>]*)[\\s\\u00A0]*>"), "")
+                    .replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(div|center|p)[\\s\\u00A0]*>$"), "")
                     .trim()
                 if (inner.isNotEmpty()) {
                     inner.split(Regex("(?i)<br\\s*/?>")).forEach {
@@ -1617,7 +1621,8 @@ fun MarkdownPreviewPaneContents(
                 while (k < paragraphs.size) {
                     val line = paragraphs[k]
                     val lineClean = line.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim().lowercase()
-                    if (lineClean.startsWith("</div") || lineClean.startsWith("</center") || lineClean.contains("</div>") || lineClean.contains("</center>")) {
+                    if (lineClean.startsWith("</div") || lineClean.startsWith("</center") || lineClean.startsWith("</p") ||
+                        lineClean.contains("</div>") || lineClean.contains("</center>") || lineClean.contains("</p>")) {
                         k++
                         break
                     }
@@ -1641,19 +1646,152 @@ fun MarkdownPreviewPaneContents(
                     isJustified = isJustified
                 )
             } else {
-                divContentLines.forEach { line ->
+                // Render the lines of the alignment container with inner block support
+                var dIdx = 0
+                while (dIdx < divContentLines.size) {
+                    val dLine = divContentLines[dIdx]
+                    val dClean = dLine.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                    val dLower = dClean.lowercase()
+
+                    // 1. HTML table inside container
+                    if (dLower.startsWith("<table")) {
+                        val tableLines = mutableListOf<String>()
+                        var tk = dIdx
+                        while (tk < divContentLines.size) {
+                            val tLine = divContentLines[tk]
+                            tableLines.add(tLine)
+                            if (tLine.trim().lowercase().contains("</table>")) {
+                                tk++
+                                break
+                            }
+                            tk++
+                        }
+                        val parsed = parseHtmlTable(tableLines.joinToString("\n"))
+                        if (parsed != null) {
+                            MarkdownTable(
+                                headerColumns = parsed.headerColumns,
+                                dataRows = parsed.dataRows,
+                                alignments = parsed.alignments,
+                                baseFontSize = baseFontSize,
+                                referenceMap = referenceMap
+                            )
+                            dIdx = tk
+                            continue
+                        }
+                    }
+
+                    // 2. Markdown table inside container
+                    if (dClean.startsWith("|") && dClean.endsWith("|")) {
+                        if (dIdx + 1 < divContentLines.size) {
+                            val nextLine = divContentLines[dIdx + 1]
+                            val nextClean = nextLine.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                            if (isTableDivider(nextClean)) {
+                                val headerCols = parseTableLine(dClean)
+                                val dividerCols = parseTableLine(nextClean)
+                                val alignments = dividerCols.map { parseAlignment(it) }
+                                val dataRows = mutableListOf<List<String>>()
+                                var rk = dIdx + 2
+                                while (rk < divContentLines.size) {
+                                    val rLine = divContentLines[rk]
+                                    val rClean = rLine.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                                    if (rClean.startsWith("|") && rClean.endsWith("|")) {
+                                        dataRows.add(parseTableLine(rClean))
+                                        rk++
+                                    } else break
+                                }
+                                MarkdownTable(
+                                    headerColumns = headerCols,
+                                    dataRows = dataRows,
+                                    alignments = alignments,
+                                    baseFontSize = baseFontSize,
+                                    referenceMap = referenceMap
+                                )
+                                dIdx = rk
+                                continue
+                            }
+                        }
+                    }
+
+                    // 3. Progress bar
+                    if (dLower.startsWith("<progress")) {
+                        val progressMatch = Regex("""(?i)<progress\s+value=["']?(\d+(?:\.\d+)?)["']?(?:\s+max=["']?(\d+(?:\.\d+)?)["']?)?[^>]*>""").find(dClean)
+                        if (progressMatch != null) {
+                            val value = progressMatch.groupValues[1].toFloatOrNull() ?: 0f
+                            val max = progressMatch.groupValues[2].toFloatOrNull().takeIf { it != null && it > 0 } ?: 100f
+                            MarkdownProgressBar(value = value, max = max)
+                            dIdx++
+                            continue
+                        }
+                    }
+
+                    // 4. Linked image block: [![alt](img)](link)
+                    if (dClean.matches(Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+)\\)\\]\\(([^\\)]+)\\)$"))) {
+                        val match = Regex("^\\[!\\[([^\\]]*)\\]\\(([^\\)]+)\\)\\]\\(([^\\)]+)\\)$").find(dClean)!!
+                        val alt = match.groupValues[1]
+                        val imgUrl = match.groupValues[2].trim()
+                        val linkUrl = match.groupValues[3].trim()
+                        MarkdownImage(url = imgUrl, alt = alt, linkUrl = linkUrl)
+                        dIdx++
+                        continue
+                    }
+
+                    // 5. Image block: ![alt](url)
+                    if (dClean.startsWith("![") && dClean.contains("](") && !dClean.startsWith("[![")) {
+                        val altStart = 2
+                        val altEnd = dClean.indexOf("](")
+                        val alt = if (altEnd > altStart) dClean.substring(altStart, altEnd) else ""
+                        val remaining = dClean.substring(altEnd + 2)
+                        val urlEnd = remaining.indexOfFirst { it == ')' || it == ' ' || it == '\t' || it == '"' || it == '\'' }
+                        val imgUrl = if (urlEnd != -1) remaining.substring(0, urlEnd).trim() else remaining.removeSuffix(")").trim()
+                        if (imgUrl.isNotEmpty()) MarkdownImage(url = imgUrl, alt = alt, linkUrl = null)
+                        dIdx++
+                        continue
+                    }
+
+                    // 6. Header
+                    if (dClean.startsWith("#")) {
+                        val hLevel = dClean.takeWhile { it == '#' }.length
+                        val hText = dClean.substring(hLevel).trim()
+                        val hSize = when (hLevel) {
+                            1 -> (baseFontSize * 1.5).sp
+                            2 -> (baseFontSize * 1.3).sp
+                            3 -> (baseFontSize * 1.15).sp
+                            4 -> (baseFontSize * 1.05).sp
+                            5 -> (baseFontSize * 0.95).sp
+                            else -> (baseFontSize * 0.85).sp
+                        }
+                        MarkdownHeader(text = hText, size = hSize, weight = FontWeight.Bold, referenceMap = referenceMap)
+                        dIdx++
+                        continue
+                    }
+
+                    // 7. Divider
+                    if (dClean == "---" || dClean == "***" || dClean == "___") {
+                        MarkdownDivider()
+                        dIdx++
+                        continue
+                    }
+
+                    // 8. Lone closing or empty tag - skip
+                    if (dLower == "</div>" || dLower == "</center>" || dLower == "</p>" || dLower == "<p>" || dClean.isEmpty()) {
+                        dIdx++
+                        continue
+                    }
+
+                    // 9. Standard MarkdownParagraph with container's explicit alignment
                     MarkdownParagraph(
-                        text = line,
+                        text = dLine,
                         fontSize = (baseFontSize * uiFontScale).sp,
                         referenceMap = referenceMap,
                         isJustified = isJustified,
                         explicitAlignment = divStyle.textAlign
                     )
+                    dIdx++
                 }
             }
             continue
         }
-        if (cleanTrimmedLower.startsWith("</div") || cleanTrimmedLower.startsWith("</center")) {
+        if (cleanTrimmedLower.startsWith("</div") || cleanTrimmedLower.startsWith("</center") || cleanTrimmedLower.startsWith("</p") || cleanTrimmedLower == "<p>" || cleanTrimmedLower == "</p>") {
             idx++
             continue
         }
@@ -1700,7 +1838,8 @@ fun MarkdownPreviewPaneContents(
                         headerColumns = headerCols,
                         dataRows = dataRows,
                         alignments = alignments,
-                        baseFontSize = baseFontSize
+                        baseFontSize = baseFontSize,
+                        referenceMap = referenceMap
                     )
                     
                     idx = k
@@ -2603,7 +2742,19 @@ fun ComposeMermaidBlock(code: String) {
                     startOnLoad: true,
                     theme: '$mermaidTheme',
                     securityLevel: 'loose',
-                    fontFamily: 'Vazirmatn, sans-serif'
+                    fontFamily: 'Vazirmatn, sans-serif',
+                    gantt: {
+                        titleTopMargin: 25,
+                        barHeight: 24,
+                        barGap: 4,
+                        topPadding: 50,
+                        sidePadding: 75,
+                        fontSize: 12,
+                        sectionFontSize: 12,
+                        numberSectionStyles: 4,
+                        axisFormat: '%Y-%m-%d',
+                        useMaxWidth: false
+                    }
                 });
                 
                 window.onload = function() {
@@ -2646,21 +2797,37 @@ fun ComposeMermaidBlock(code: String) {
                     padding: 8px;
                     display: block;
                     text-align: center;
-                    overflow: auto;
+                    overflow-x: auto;
+                    overflow-y: hidden;
                     font-family: 'Vazirmatn', sans-serif;
                     direction: ltr;
                 }
                 #mermaid-container {
                     display: inline-block;
+                    width: 100%;
+                    overflow-x: auto;
+                    -webkit-overflow-scrolling: touch;
+                    text-align: center;
                 }
                 .mermaid {
                     display: inline-block;
                     text-align: center;
                     width: auto;
+                    min-width: 100%;
                 }
                 svg {
-                    max-width: 100%;
+                    max-width: none;
                     height: auto;
+                    overflow: visible;
+                }
+                text {
+                    font-family: 'Vazirmatn', sans-serif !important;
+                }
+                .titleText, text.titleText, #gantt-title-text {
+                    font-family: 'Vazirmatn', sans-serif !important;
+                    font-size: 14px !important;
+                    text-anchor: middle !important;
+                    unicode-bidi: plaintext !important;
                 }
             </style>
         </head>
@@ -2884,13 +3051,39 @@ fun isTableDivider(line: String): Boolean {
 fun parseTableLine(line: String): List<String> {
     val trimmed = line.trim()
     if (!trimmed.startsWith("|")) return emptyList()
-    val rawParts = trimmed.split("|")
     val parts = mutableListOf<String>()
-    for (idx in 1 until rawParts.size - 1) {
-        parts.add(rawParts[idx].trim())
+    val current = StringBuilder()
+    var bracketDepth = 0
+    var parenDepth = 0
+    var isEscaped = false
+
+    for (i in 1 until trimmed.length) {
+        val c = trimmed[i]
+        if (isEscaped) {
+            current.append(c)
+            isEscaped = false
+            continue
+        }
+        if (c == '\\') {
+            isEscaped = true
+            current.append(c)
+            continue
+        }
+        if (c == '[') bracketDepth++
+        else if (c == ']' && bracketDepth > 0) bracketDepth--
+        else if (c == '(') parenDepth++
+        else if (c == ')' && parenDepth > 0) parenDepth--
+
+        if (c == '|' && bracketDepth == 0 && parenDepth == 0) {
+            parts.add(current.toString().trim())
+            current.clear()
+        } else {
+            current.append(c)
+        }
     }
-    if (rawParts.size <= 2 && trimmed.contains("|")) {
-        return trimmed.split("|").map { it.trim() }.filter { it.isNotEmpty() }
+    val remaining = current.toString().trim()
+    if (remaining.isNotEmpty()) {
+        parts.add(remaining)
     }
     return parts
 }
@@ -3171,10 +3364,11 @@ fun TableCell(
     alignment: TableColumnAlignment,
     isHeader: Boolean,
     baseFontSize: Int,
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
-    val resolvedText = parseMarkdownInlineStyles(text, codeBgColor, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer)
+    val resolvedText = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer)
     
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     
@@ -3214,6 +3408,7 @@ fun MarkdownTable(
     dataRows: List<List<String>>,
     alignments: List<TableColumnAlignment>,
     baseFontSize: Int,
+    referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     val outlineColor = MaterialTheme.colorScheme.outlineVariant
@@ -3251,6 +3446,7 @@ fun MarkdownTable(
                                 alignment = align,
                                 isHeader = true,
                                 baseFontSize = baseFontSize,
+                                referenceMap = referenceMap,
                                 modifier = Modifier.width(160.dp)
                             )
                         }
@@ -3284,6 +3480,7 @@ fun MarkdownTable(
                                     alignment = align,
                                     isHeader = false,
                                     baseFontSize = baseFontSize,
+                                    referenceMap = referenceMap,
                                     modifier = Modifier.width(160.dp)
                                 )
                             }
@@ -3554,6 +3751,23 @@ fun parseMarkdownInlineStyles(
         val matchedTextClean = matchedText.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
         val matchedTextLower = matchedTextClean.trim().lowercase()
         when {
+            // Linked Image: [![alt](img_url)](link_url)
+            matchedTextLower.startsWith("[![") && matchedTextLower.contains("](") -> {
+                val imgLinkRegex = Regex("\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)")
+                val imgLinkMatch = imgLinkRegex.find(matchedTextClean)
+                if (imgLinkMatch != null) {
+                    val altText = imgLinkMatch.groupValues[1].ifEmpty { "image" }
+                    builder.pushStyle(SpanStyle(
+                        color = Color(0xFF0E8457),
+                        fontStyle = FontStyle.Italic,
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                    ))
+                    builder.append("\uD83D\uDDBC $altText")
+                    builder.pop()
+                } else {
+                    builder.append(matchedText)
+                }
+            }
             // Inline Image: ![alt](url)
             matchedTextLower.startsWith("![") -> {
                 val imgRegex = Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")
