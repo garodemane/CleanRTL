@@ -74,7 +74,11 @@ object TextRepairProcessor {
                 cleanLower.startsWith("<div") || cleanLower.startsWith("</div") ||
                 cleanLower.startsWith("<center") || cleanLower.startsWith("</center") ||
                 cleanLower.startsWith("<p align=") || cleanLower.startsWith("<p style=") ||
-                cleanLower == "<p>" || cleanLower == "</p>") {
+                cleanLower == "<p>" || cleanLower == "</p>" ||
+                cleanLower == "<sub>" || cleanLower.startsWith("<sub ") || cleanLower.startsWith("<sub/") ||
+                cleanLower == "</sub>" || cleanLower.startsWith("</sub") ||
+                cleanLower == "<sup>" || cleanLower.startsWith("<sup ") || cleanLower.startsWith("<sup/") ||
+                cleanLower == "</sup>" || cleanLower.startsWith("</sup")) {
                 return@map paragraph
             }
 
@@ -149,6 +153,15 @@ object TextRepairProcessor {
                     placeholder
                 }
 
+                // Protect footnote citations before doing bidi repair
+                val footnotePlaceholderMap = mutableListOf<String>()
+                val footnoteRegex = Regex("\\[\\^[^\\]]+\\]")
+                result = footnoteRegex.replace(result) { matchResult ->
+                    val placeholder = "FNREFPLCHLDR${footnotePlaceholderMap.size}"
+                    footnotePlaceholderMap.add(matchResult.value)
+                    placeholder
+                }
+
                 // Step 1: Normalize Persian glyphs if enabled
                 if (enableNormalization) {
                     result = normalizeCharacters(result)
@@ -159,6 +172,12 @@ object TextRepairProcessor {
 
                 // Step 3: Handle punctuation at sentence ends
                 result = fixTrailingPunctuation(result)
+
+                // Restore footnote citations from placeholders
+                footnotePlaceholderMap.forEachIndexed { index, originalFn ->
+                    val placeholder = "FNREFPLCHLDR$index"
+                    result = result.replace(placeholder, originalFn)
+                }
 
                 // Restore ruby annotation blocks from placeholders
                 rubyPlaceholderMap.forEachIndexed { index, originalRuby ->

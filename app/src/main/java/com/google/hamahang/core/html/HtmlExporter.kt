@@ -359,7 +359,47 @@ object HtmlExporter {
                 continue
             }
 
-            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center") || trimmedLower.startsWith("</p") || trimmedLower == "<p>") {
+            // HTML Sub block
+            if (trimmedLower.startsWith("<sub")) {
+                val subLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    subLines.add(line)
+                    if (line.trim().lowercase().contains("</sub>")) {
+                        k++
+                        break
+                    }
+                    k++
+                }
+                val fullSubHtml = subLines.joinToString("\n")
+                htmlContent.append("$fullSubHtml\n")
+                idx = k
+                continue
+            }
+
+            // HTML Sup block
+            if (trimmedLower.startsWith("<sup")) {
+                val supLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    supLines.add(line)
+                    if (line.trim().lowercase().contains("</sup>")) {
+                        k++
+                        break
+                    }
+                    k++
+                }
+                val fullSupHtml = supLines.joinToString("\n")
+                htmlContent.append("$fullSupHtml\n")
+                idx = k
+                continue
+            }
+
+            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center") || trimmedLower.startsWith("</p") || 
+                trimmedLower == "<sub>" || trimmedLower == "</sub>" || trimmedLower == "<sup>" || trimmedLower == "</sup>" ||
+                trimmedLower == "<p>" || trimmedLower == "</p>") {
                 idx++
                 continue
             }
@@ -1513,8 +1553,8 @@ object HtmlExporter {
 
 
         // 12. Footnote references: [^1] -> superscript link
-        res = res.replace(Regex("\\[\\^([^\\]]+)\\]")) { match ->
-            val label = match.groupValues[1]
+        res = res.replace(Regex("\\[[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*\\^([^\\]]+)\\]")) { match ->
+            val label = match.groupValues[1].replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "")
             "<sup><a href='#fn-$label'>[$label]</a></sup>"
         }
 

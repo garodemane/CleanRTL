@@ -306,6 +306,33 @@ class TextRepairProcessorTest {
         assertFalse("Progress tag must be LTR", TextRepairProcessor.isParagraphRtl("<progress value=\"75\" max=\"100\"> 75% </progress> 75%"))
         assertFalse("Div style tag must be LTR", TextRepairProcessor.isParagraphRtl("<div style=\"background-color: #e3f2fd; border-left: 5px solid #2196F3;\">"))
     }
+
+    @Test
+    fun testFootnoteCitationPreservedInRtlParagraph() {
+        val lri = 0x2066.toChar()
+        val pdi = 0x2069.toChar()
+        val inputWithPeriodFirst = "مارک‌داون در سال ۲۰۰۴ معرفی شد.[^1]"
+        val repaired1 = TextRepairProcessor.repairText(inputWithPeriodFirst)
+        
+        // Assert that [^1] is preserved intact and NOT broken into [ + isolate + ^1 + ]
+        assertTrue("Footnote [^1] must be preserved intact without broken brackets",
+            repaired1.contains("[^1]") || repaired1.contains("${lri}[^1]${pdi}"))
+        assertFalse("Footnote citation must NOT have isolate inside brackets",
+            repaired1.contains("[${lri}^1${pdi}]") || repaired1.contains("[${lri}^1"))
+
+        val inputWithPeriodAfter = "مارک‌داون در سال ۲۰۰۴ معرفی شد[^1]."
+        val repaired2 = TextRepairProcessor.repairText(inputWithPeriodAfter)
+        assertTrue("Footnote [^1] must be preserved intact with trailing period",
+            repaired2.contains("[^1]") || repaired2.contains("${lri}[^1]${pdi}"))
+    }
+
+    @Test
+    fun testSubAndSupTagsSkippedAsStructuralLines() {
+        assertEquals("<sub>", TextRepairProcessor.repairText("<sub>"))
+        assertEquals("</sub>", TextRepairProcessor.repairText("</sub>"))
+        assertEquals("<sup>", TextRepairProcessor.repairText("<sup>"))
+        assertEquals("</sup>", TextRepairProcessor.repairText("</sup>"))
+    }
 }
 
 

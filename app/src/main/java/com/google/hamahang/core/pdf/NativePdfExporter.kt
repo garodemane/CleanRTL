@@ -633,6 +633,69 @@ object NativePdfExporter {
                 }
             }
 
+            // Check if this line starts a multi-line HTML sub / sup block
+            val isSubBlock = trimmedLower.startsWith("<sub") && !trimmedLower.contains("</sub>")
+            val isSupBlock = trimmedLower.startsWith("<sup") && !trimmedLower.contains("</sup>")
+            if (isSubBlock || isSupBlock) {
+                val closeTagLower = if (isSubBlock) "</sub" else "</sup"
+                val subLines = mutableListOf<String>()
+                val firstLineContent = trimmedClean.replace(Regex("(?i)^<[\\s\\u00A0]*(sub|sup)[^>]*>"), "").trim()
+                if (firstLineContent.isNotEmpty()) {
+                    subLines.add(firstLineContent)
+                }
+                var k = idx + 1
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    val lineClean = line.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                    val lineLower = lineClean.lowercase()
+                    if (lineLower.contains(closeTagLower)) {
+                        val contentBeforeClose = lineClean.replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(sub|sup)[\\s\\u00A0]*>.*$"), "").trim()
+                        if (contentBeforeClose.isNotEmpty()) {
+                            subLines.add(contentBeforeClose)
+                        }
+                        k++
+                        break
+                    }
+                    if (line.isNotBlank()) {
+                        subLines.add(line.trim())
+                    }
+                    k++
+                }
+                val subFontSize = baseFontSize * 0.75f
+                for (sLine in subLines) {
+                    val spannable = parseMarkdownAndHtmlToSpannable(
+                        context, sLine, subFontSize, boldTypeface, italicTypeface, referenceMap, imageBitmaps
+                    )
+                    textPaint.textSize = subFontSize
+                    textPaint.typeface = regularTypeface
+                    textPaint.color = Color.BLACK
+                    val isRtl = TextRepairProcessor.isParagraphRtl(sLine)
+                    val textDir = if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                    val layoutAlign = if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL
+                    val layout = StaticLayout.Builder.obtain(spannable, 0, spannable.length, textPaint, printableWidth.toInt())
+                        .setAlignment(layoutAlign)
+                        .setTextDirection(textDir)
+                        .setLineSpacing(0f, 1.25f)
+                        .build()
+
+                    if (yOffset + layout.height > pageHeight - margin) {
+                        pdfDocument.finishPage(currentPage)
+                        currentPageNumber++
+                        pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                        currentPage = pdfDocument.startPage(pageInfo)
+                        canvas = currentPage.canvas
+                        yOffset = margin
+                    }
+                    canvas.save()
+                    canvas.translate(margin, yOffset)
+                    layout.draw(canvas)
+                    canvas.restore()
+                    yOffset += layout.height + subFontSize * 0.3f
+                }
+                idx = k
+                continue
+            }
+
             // HTML Div / Center / P text alignment container / Styled Box
             val isAlignmentBlock = trimmedLower.startsWith("<div") || 
                                    trimmedLower.startsWith("<center") || 
@@ -935,8 +998,79 @@ object NativePdfExporter {
                             }
                         }
 
+                        // 3.5. Sub / sup block inside container
+                        val isInnerSub = dLower.startsWith("<sub") && !dLower.contains("</sub>")
+                        val isInnerSup = dLower.startsWith("<sup") && !dLower.contains("</sup>")
+                        if (isInnerSub || isInnerSup) {
+                            val closeTagLower = if (isInnerSub) "</sub" else "</sup"
+                            val subLines = mutableListOf<String>()
+                            val firstLineContent = dClean.replace(Regex("(?i)^<[\\s\\u00A0]*(sub|sup)[^>]*>"), "").trim()
+                            if (firstLineContent.isNotEmpty()) {
+                                subLines.add(firstLineContent)
+                            }
+                            var sk = dIdx + 1
+                            while (sk < divContentLines.size) {
+                                val sLine = divContentLines[sk]
+                                val sClean = sLine.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                                val sLower = sClean.lowercase()
+                                if (sLower.contains(closeTagLower)) {
+                                    val contentBeforeClose = sClean.replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(sub|sup)[\\s\\u00A0]*>.*$"), "").trim()
+                                    if (contentBeforeClose.isNotEmpty()) {
+                                        subLines.add(contentBeforeClose)
+                                    }
+                                    sk++
+                                    break
+                                }
+                                if (sLine.isNotBlank()) {
+                                    subLines.add(sLine.trim())
+                                }
+                                sk++
+                            }
+                            val subFontSize = baseFontSize * 0.75f
+                            for (sLine in subLines) {
+                                val spannable = parseMarkdownAndHtmlToSpannable(
+                                    context, sLine, subFontSize, boldTypeface, italicTypeface, referenceMap, imageBitmaps
+                                )
+                                textPaint.textSize = subFontSize
+                                textPaint.typeface = regularTypeface
+                                textPaint.color = Color.BLACK
+                                val isRtl = TextRepairProcessor.isParagraphRtl(sLine)
+                                val textDir = if (alignment == Layout.Alignment.ALIGN_CENTER) {
+                                    if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                                } else if (alignment == Layout.Alignment.ALIGN_OPPOSITE) {
+                                    TextDirectionHeuristics.RTL
+                                } else if (alignment == Layout.Alignment.ALIGN_NORMAL) {
+                                    TextDirectionHeuristics.LTR
+                                } else {
+                                    if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                                }
+                                val layoutAlign = alignment ?: (if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL)
+                                val staticLayout = StaticLayout.Builder.obtain(spannable, 0, spannable.length, textPaint, printableWidth.toInt())
+                                    .setAlignment(layoutAlign)
+                                    .setTextDirection(textDir)
+                                    .setLineSpacing(0f, 1.25f)
+                                    .build()
+                                if (yOffset + staticLayout.height > pageHeight - margin) {
+                                    pdfDocument.finishPage(currentPage)
+                                    currentPageNumber++
+                                    pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                                    currentPage = pdfDocument.startPage(pageInfo)
+                                    canvas = currentPage.canvas
+                                    yOffset = margin
+                                }
+                                canvas.save()
+                                canvas.translate(margin, yOffset)
+                                staticLayout.draw(canvas)
+                                canvas.restore()
+                                yOffset += staticLayout.height + subFontSize * 0.3f
+                            }
+                            dIdx = sk
+                            continue
+                        }
+
                         // 4. Lone closing or empty tag - skip
-                        if (dLower == "</div>" || dLower == "</center>" || dLower == "</p>" || dLower == "<p>" || dClean.isEmpty()) {
+                        if (dLower == "</div>" || dLower == "</center>" || dLower == "</p>" || dLower == "<p>" || 
+                            dLower == "<sub>" || dLower == "</sub>" || dLower == "<sup>" || dLower == "</sup>" || dClean.isEmpty()) {
                             dIdx++
                             continue
                         }
@@ -982,7 +1116,9 @@ object NativePdfExporter {
                 }
                 continue
             }
-            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center") || trimmedLower.startsWith("</p") || trimmedLower == "<p>") {
+            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center") || trimmedLower.startsWith("</p") || 
+                trimmedLower == "<sub>" || trimmedLower == "</sub>" || trimmedLower == "<sup>" || trimmedLower == "</sup>" ||
+                trimmedLower == "<p>" || trimmedLower == "</p>") {
                 idx++
                 continue
             }
@@ -2138,7 +2274,7 @@ object NativePdfExporter {
 
         // Match all advanced markdown/html structures precisely
         // NOTE: Do NOT use (?s) / dotall — it causes patterns like **...** to span across lines
-        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|<b>[^\\n]*?</b>|<i>[^\\n]*?</i>|<ruby>[\\s\\S]*?</ruby>|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<del>[^\\n]*?</del>|<ins>[^\\n]*?</ins>|<mark>[^\\n]*?</mark>|<u>[^\\n]*?</u>|<sub>[^\\n]*?</sub>|<sup>[^\\n]*?</sup>|<img\\b[^>]*\\/?>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|\\\\\\([\\s\\S]*?\\\\\\)|\\\\\\[[\\s\\S]*?\\\\\\]|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
+        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|<b>[^\\n]*?</b>|<i>[^\\n]*?</i>|<ruby>[\\s\\S]*?</ruby>|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<del>[^\\n]*?</del>|<ins>[^\\n]*?</ins>|<mark>[^\\n]*?</mark>|<u>[^\\n]*?</u>|<sub>[^\\n]*?</sub>|<sup>[^\\n]*?</sup>|<img\\b[^>]*\\/?>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|\\\\\\([\\s\\S]*?\\\\\\)|\\\\\\[[\\s\\S]*?\\\\\\]|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
         val matches = regex.findAll(res)
 
         for (match in matches) {
@@ -2413,13 +2549,13 @@ object NativePdfExporter {
                         builder.append(matchedText)
                     }
                 }
-                matchedTextLower.startsWith("[^") && matchedTextLower.endsWith("]") -> {
-                    val refId = matchedTextClean.substring(2, matchedTextClean.length - 1)
+                matchedTextClean.startsWith("[^") && matchedTextClean.endsWith("]") -> {
+                    val refId = matchedTextClean.substring(matchedTextClean.indexOf('^') + 1, matchedTextClean.length - 1)
                     val start = builder.length
                     builder.append("[$refId]")
                     builder.setSpan(android.text.style.SuperscriptSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     builder.setSpan(android.text.style.RelativeSizeSpan(0.7f), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    builder.setSpan(ForegroundColorSpan(Color.BLUE), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("<http") && matchedTextLower.endsWith(">") -> {
                     val url = matchedTextClean.substring(1, matchedTextClean.length - 1)

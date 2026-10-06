@@ -1622,6 +1622,46 @@ fun MarkdownPreviewPaneContents(
             }
         }
 
+        // Check if this line is a multi-line HTML sub / sup block
+        val isSubBlock = cleanTrimmedLower.startsWith("<sub") && !cleanTrimmedLower.contains("</sub>")
+        val isSupBlock = cleanTrimmedLower.startsWith("<sup") && !cleanTrimmedLower.contains("</sup>")
+        if (isSubBlock || isSupBlock) {
+            val closeTagLower = if (isSubBlock) "</sub" else "</sup"
+            val subLines = mutableListOf<String>()
+            val firstLineContent = cleanTrimmed.replace(Regex("(?i)^<[\\s\\u00A0]*(sub|sup)[^>]*>"), "").trim()
+            if (firstLineContent.isNotEmpty()) {
+                subLines.add(firstLineContent)
+            }
+            var k = idx + 1
+            while (k < paragraphs.size) {
+                val line = paragraphs[k]
+                val lineClean = line.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                val lineLower = lineClean.lowercase()
+                if (lineLower.contains(closeTagLower)) {
+                    val contentBeforeClose = lineClean.replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(sub|sup)[\\s\\u00A0]*>.*$"), "").trim()
+                    if (contentBeforeClose.isNotEmpty()) {
+                        subLines.add(contentBeforeClose)
+                    }
+                    k++
+                    break
+                }
+                if (line.isNotBlank()) {
+                    subLines.add(line.trim())
+                }
+                k++
+            }
+            for (sLine in subLines) {
+                MarkdownParagraph(
+                    text = sLine,
+                    fontSize = (baseFontSize * 0.8 * uiFontScale).sp,
+                    referenceMap = referenceMap,
+                    isJustified = isJustified
+                )
+            }
+            idx = k
+            continue
+        }
+
         // Check if this line is an HTML div / center / p alignment container
         val isAlignmentBlock = cleanTrimmedLower.startsWith("<div") || 
                                cleanTrimmedLower.startsWith("<center") || 
@@ -1798,8 +1838,50 @@ fun MarkdownPreviewPaneContents(
                         continue
                     }
 
+                    // 7.5. Sub / sup block inside container
+                    val isInnerSub = dLower.startsWith("<sub") && !dLower.contains("</sub>")
+                    val isInnerSup = dLower.startsWith("<sup") && !dLower.contains("</sup>")
+                    if (isInnerSub || isInnerSup) {
+                        val closeTagLower = if (isInnerSub) "</sub" else "</sup"
+                        val subLines = mutableListOf<String>()
+                        val firstLineContent = dClean.replace(Regex("(?i)^<[\\s\\u00A0]*(sub|sup)[^>]*>"), "").trim()
+                        if (firstLineContent.isNotEmpty()) {
+                            subLines.add(firstLineContent)
+                        }
+                        var sk = dIdx + 1
+                        while (sk < divContentLines.size) {
+                            val sLine = divContentLines[sk]
+                            val sClean = sLine.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+                            val sLower = sClean.lowercase()
+                            if (sLower.contains(closeTagLower)) {
+                                val contentBeforeClose = sClean.replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(sub|sup)[\\s\\u00A0]*>.*$"), "").trim()
+                                if (contentBeforeClose.isNotEmpty()) {
+                                    subLines.add(contentBeforeClose)
+                                }
+                                sk++
+                                break
+                            }
+                            if (sLine.isNotBlank()) {
+                                subLines.add(sLine.trim())
+                            }
+                            sk++
+                        }
+                        for (sLine in subLines) {
+                            MarkdownParagraph(
+                                text = sLine,
+                                fontSize = (baseFontSize * 0.8 * uiFontScale).sp,
+                                referenceMap = referenceMap,
+                                isJustified = isJustified,
+                                explicitAlignment = divStyle.textAlign
+                            )
+                        }
+                        dIdx = sk
+                        continue
+                    }
+
                     // 8. Lone closing or empty tag - skip
-                    if (dLower == "</div>" || dLower == "</center>" || dLower == "</p>" || dLower == "<p>" || dClean.isEmpty()) {
+                    if (dLower == "</div>" || dLower == "</center>" || dLower == "</p>" || dLower == "<p>" || 
+                        dLower == "<sub>" || dLower == "</sub>" || dLower == "<sup>" || dLower == "</sup>" || dClean.isEmpty()) {
                         dIdx++
                         continue
                     }
@@ -1817,7 +1899,9 @@ fun MarkdownPreviewPaneContents(
             }
             continue
         }
-        if (cleanTrimmedLower.startsWith("</div") || cleanTrimmedLower.startsWith("</center") || cleanTrimmedLower.startsWith("</p") || cleanTrimmedLower == "<p>" || cleanTrimmedLower == "</p>") {
+        if (cleanTrimmedLower.startsWith("</div") || cleanTrimmedLower.startsWith("</center") || cleanTrimmedLower.startsWith("</p") || 
+            cleanTrimmedLower == "<sub>" || cleanTrimmedLower == "</sub>" || cleanTrimmedLower == "<sup>" || cleanTrimmedLower == "</sup>" ||
+            cleanTrimmedLower == "<p>" || cleanTrimmedLower == "</p>") {
             idx++
             continue
         }
@@ -3276,6 +3360,10 @@ fun ComposeStyledBox(
             }
             Column(modifier = Modifier.weight(1f)) {
                 lines.forEach { line ->
+                    val cleanLine = line.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim().lowercase()
+                    if (cleanLine == "<sub>" || cleanLine == "</sub>" || cleanLine == "<sup>" || cleanLine == "</sup>") {
+                        return@forEach
+                    }
                     if (line.isNotBlank()) {
                         MarkdownParagraph(
                             text = line,
@@ -3768,7 +3856,7 @@ fun parseMarkdownInlineStyles(
     }
 
     // Match images, bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font/abbr, autolinks, auto-emails, footnotes, kbd, reference links, line breaks, emojis
-    val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|<b>[^\\n]*?</b>|<i>[^\\n]*?</i>|<ruby>[\\s\\S]*?</ruby>|\\*\\*\\*[^\\n]+?\\*\\*\\*|\\*\\*[^\\n]+?\\*\\*|__[^\\n]+?__|\\*[^\\n\\*]+?\\*|_[^_\\n\\r]+?_|~~.*?~~|<del>.*?</del>|<ins>.*?</ins>|<mark>.*?</mark>|<u>.*?</u>|<sub>.*?</sub>|<sup>.*?</sup>|<img\\b[^>]*\\/?>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|\\\\\\([\\s\\S]*?\\\\\\)|\\\\\\[[\\s\\S]*?\\\\\\]|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\$|  $)")
+    val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|<b>[^\\n]*?</b>|<i>[^\\n]*?</i>|<ruby>[\\s\\S]*?</ruby>|\\*\\*\\*[^\\n]+?\\*\\*\\*|\\*\\*[^\\n]+?\\*\\*|__[^\\n]+?__|\\*[^\\n\\*]+?\\*|_[^_\\n\\r]+?_|~~.*?~~|<del>.*?</del>|<ins>.*?</ins>|<mark>.*?</mark>|<u>.*?</u>|<sub>.*?</sub>|<sup>.*?</sup>|<img\\b[^>]*\\/?>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|\\\\\\([\\s\\S]*?\\\\\\)|\\\\\\[[\\s\\S]*?\\\\\\]|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\$|  $)")
     val matches = regex.findAll(encodedInput)
 
     for (match in matches) {
@@ -3963,15 +4051,15 @@ fun parseMarkdownInlineStyles(
                 builder.pop()
             }
             // Inline footnote: [^1]
-            matchedTextLower.startsWith("[^") && matchedTextLower.endsWith("]") && !matchedTextLower.contains("](") && !matchedTextLower.contains("][") -> {
-                val label = matchedTextClean.substring(2, matchedTextClean.length - 1)
+            matchedTextClean.startsWith("[^") && matchedTextClean.endsWith("]") && !matchedTextClean.contains("](") && !matchedTextClean.contains("][") -> {
+                val label = matchedTextClean.substring(matchedTextClean.indexOf('^') + 1, matchedTextClean.length - 1)
                 builder.pushStyle(SpanStyle(
                     color = Color(0xFF0E8457), // Accent green link color
                     baselineShift = androidx.compose.ui.text.style.BaselineShift.Superscript,
                     fontSize = 12.sp,
                     textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
                 ))
-                builder.append(decodeEscapesUnescaped(label))
+                builder.append("[${decodeEscapesUnescaped(label)}]")
                 builder.pop()
             }
             matchedTextLower.startsWith("[") && matchedTextLower.contains("][") -> {
