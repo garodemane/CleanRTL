@@ -302,104 +302,349 @@ object HtmlExporter {
                 continue
             }
 
-            // HTML Div block
-            if (trimmedLower.startsWith("<div")) {
-                val divLines = mutableListOf<String>()
-                var k = idx
-                while (k < paragraphs.size) {
-                    val line = paragraphs[k]
-                    divLines.add(line)
-                    if (line.trim().lowercase().contains("</div>")) {
-                        k++
-                        break
-                    }
-                    k++
+            // HTML Sub / Sup multi-line block
+            val isSubBlock = trimmedLower.startsWith("<sub") && !trimmedLower.contains("</sub>")
+            val isSupBlock = trimmedLower.startsWith("<sup") && !trimmedLower.contains("</sup>")
+            if (isSubBlock || isSupBlock) {
+                while (openLists.isNotEmpty()) {
+                    val closed = openLists.removeAt(openLists.size - 1)
+                    htmlContent.append("</${closed.type}>\n")
                 }
-                val fullDivHtml = divLines.joinToString("\n")
-                htmlContent.append("$fullDivHtml\n")
-                idx = k
-                continue
-            }
-
-            // HTML Center block
-            if (trimmedLower.startsWith("<center")) {
-                val centerLines = mutableListOf<String>()
-                var k = idx
-                while (k < paragraphs.size) {
-                    val line = paragraphs[k]
-                    centerLines.add(line)
-                    if (line.trim().lowercase().contains("</center>")) {
-                        k++
-                        break
-                    }
-                    k++
+                while (activeQuoteLevel > 0) {
+                    htmlContent.append("</blockquote>\n")
+                    activeQuoteLevel--
                 }
-                val fullCenterHtml = centerLines.joinToString("\n")
-                htmlContent.append("$fullCenterHtml\n")
-                idx = k
-                continue
-            }
-
-            // HTML P block with alignment or styling (<p align="..." or <p style="...")
-            if (trimmedLower.startsWith("<p") && (trimmedLower.contains("align=") || trimmedLower.contains("text-align") || trimmedLower.contains("style="))) {
-                val pLines = mutableListOf<String>()
-                var k = idx
-                while (k < paragraphs.size) {
-                    val line = paragraphs[k]
-                    pLines.add(line)
-                    if (line.trim().lowercase().contains("</p>")) {
-                        k++
-                        break
-                    }
-                    k++
-                }
-                val fullPHtml = pLines.joinToString("\n")
-                htmlContent.append("$fullPHtml\n")
-                idx = k
-                continue
-            }
-
-            // HTML Sub block
-            if (trimmedLower.startsWith("<sub")) {
+                val closeTagLower = if (isSubBlock) "</sub" else "</sup"
+                val wrapTag = if (isSubBlock) "sub" else "sup"
                 val subLines = mutableListOf<String>()
-                var k = idx
+                val firstLineContent = trimmedClean.replace(Regex("(?i)^<[\\s\\u00A0]*(sub|sup)[^>]*>"), "").trim()
+                if (firstLineContent.isNotEmpty()) {
+                    subLines.add(firstLineContent)
+                }
+                var k = idx + 1
                 while (k < paragraphs.size) {
                     val line = paragraphs[k]
-                    subLines.add(line)
-                    if (line.trim().lowercase().contains("</sub>")) {
+                    val lineClean = line.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "").trim()
+                    val lineLower = lineClean.lowercase()
+                    if (lineLower.contains(closeTagLower)) {
+                        val contentBeforeClose = lineClean.replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(sub|sup)[\\s\\u00A0]*>.*$"), "").trim()
+                        if (contentBeforeClose.isNotEmpty()) {
+                            subLines.add(contentBeforeClose)
+                        }
                         k++
                         break
                     }
+                    if (line.isNotBlank()) {
+                        subLines.add(line.trim())
+                    }
                     k++
                 }
-                val fullSubHtml = subLines.joinToString("\n")
-                htmlContent.append("$fullSubHtml\n")
+                for (sLine in subLines) {
+                    val formatted = formatHtmlInlineStyles(sLine, referenceMap)
+                    val isRtl = TextRepairProcessor.isParagraphRtl(sLine)
+                    val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                    htmlContent.append("<p $dirAttr><$wrapTag>$formatted</$wrapTag></p>\n")
+                }
                 idx = k
                 continue
             }
 
-            // HTML Sup block
-            if (trimmedLower.startsWith("<sup")) {
-                val supLines = mutableListOf<String>()
-                var k = idx
-                while (k < paragraphs.size) {
-                    val line = paragraphs[k]
-                    supLines.add(line)
-                    if (line.trim().lowercase().contains("</sup>")) {
-                        k++
-                        break
-                    }
-                    k++
+            // HTML Div / Center / P text alignment container
+            val isAlignmentBlock = trimmedLower.startsWith("<center") || 
+                                   trimmedLower.startsWith("<div") || 
+                                   (trimmedLower.startsWith("<p") && (trimmedLower.contains("align=") || trimmedLower.contains("text-align") || trimmedLower.contains("style=")))
+            if (isAlignmentBlock) {
+                while (openLists.isNotEmpty()) {
+                    val closed = openLists.removeAt(openLists.size - 1)
+                    htmlContent.append("</${closed.type}>\n")
                 }
-                val fullSupHtml = supLines.joinToString("\n")
-                htmlContent.append("$fullSupHtml\n")
-                idx = k
+                while (activeQuoteLevel > 0) {
+                    htmlContent.append("</blockquote>\n")
+                    activeQuoteLevel--
+                }
+
+                val isCenter = trimmedLower.startsWith("<center") || 
+                               trimmedLower.contains("text-align:\\s*center".toRegex()) || 
+                               trimmedLower.contains("align=[\"']?center".toRegex())
+
+                val isRight = trimmedLower.contains("text-align:\\s*right".toRegex()) || 
+                              trimmedLower.contains("align=[\"']?right".toRegex())
+
+                val isLeft = trimmedLower.contains("text-align:\\s*left".toRegex()) || 
+                             trimmedLower.contains("align=[\"']?left".toRegex())
+
+                val alignClass = when {
+                    isCenter -> "text-center"
+                    isRight -> "text-right"
+                    isLeft -> "text-left"
+                    else -> ""
+                }
+
+                val alignStyle = when {
+                    isCenter -> "text-align: center;"
+                    isRight -> "text-align: right;"
+                    isLeft -> "text-align: left;"
+                    else -> ""
+                }
+
+                val styleMatch = Regex("""(?i)style\s*=\s*["']([^"']*)["']""").find(trimmedClean)
+                val rawStyle = styleMatch?.groupValues?.get(1)?.trim() ?: ""
+                val combinedStyle = if (rawStyle.isNotEmpty()) {
+                    if (alignStyle.isNotEmpty() && !rawStyle.contains("text-align", ignoreCase = true)) {
+                        "$rawStyle; $alignStyle"
+                    } else {
+                        rawStyle
+                    }
+                } else {
+                    alignStyle
+                }
+
+                val divContentLines = mutableListOf<String>()
+                val isClosingSameLine = (trimmedLower.startsWith("<center") && trimmedLower.contains("</center>")) ||
+                                        (trimmedLower.startsWith("<div") && trimmedLower.contains("</div>")) ||
+                                        (trimmedLower.startsWith("<p") && trimmedLower.contains("</p>"))
+
+                if (isClosingSameLine) {
+                    val inner = trimmedClean
+                        .replace(Regex("(?i)^<[\\s\\u00A0]*(div[^>]*|center|p[^>]*)[\\s\\u00A0]*>"), "")
+                        .replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(div|center|p)[\\s\\u00A0]*>$"), "")
+                        .trim()
+                    if (inner.isNotEmpty()) {
+                        inner.split(Regex("(?i)<br\\s*/?>")).forEach {
+                            if (it.isNotBlank()) divContentLines.add(it.trim())
+                        }
+                    }
+                    idx++
+                } else {
+                    val closeTagPattern = when {
+                        trimmedLower.startsWith("<center") -> "</center>"
+                        trimmedLower.startsWith("<p") -> "</p>"
+                        else -> "</div>"
+                    }
+                    val firstLineInner = trimmedClean
+                        .replace(Regex("(?i)^<[\\s\\u00A0]*(div[^>]*|center|p[^>]*)[\\s\\u00A0]*>"), "")
+                        .trim()
+                    if (firstLineInner.isNotEmpty()) {
+                        firstLineInner.split(Regex("(?i)<br\\s*/?>")).forEach {
+                            if (it.isNotBlank()) divContentLines.add(it.trim())
+                        }
+                    }
+                    var k = idx + 1
+                    while (k < paragraphs.size) {
+                        val line = paragraphs[k]
+                        val lineClean = line.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "").trim()
+                        val lineLower = lineClean.lowercase()
+                        if (lineLower.contains(closeTagPattern) || 
+                            lineLower.startsWith("</center") || lineLower.startsWith("</div") || lineLower.startsWith("</p")) {
+                            val contentBeforeClose = lineClean.replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(div|center|p)[\\s\\u00A0]*>.*$"), "").trim()
+                            if (contentBeforeClose.isNotEmpty()) {
+                                contentBeforeClose.split(Regex("(?i)<br\\s*/?>")).forEach {
+                                    if (it.isNotBlank()) divContentLines.add(it.trim())
+                                }
+                            }
+                            k++
+                            break
+                        }
+                        if (line.isNotBlank()) {
+                            line.split(Regex("(?i)<br\\s*/?>")).forEach {
+                                if (it.isNotBlank()) divContentLines.add(it.trim())
+                            }
+                        }
+                        k++
+                    }
+                    idx = k
+                }
+
+                val styleAttr = if (combinedStyle.isNotEmpty()) "style=\"$combinedStyle\"" else ""
+                val classAttr = if (alignClass.isNotEmpty()) "class=\"$alignClass\"" else ""
+                htmlContent.append("<div $classAttr $styleAttr>\n")
+
+                var dIdx = 0
+                while (dIdx < divContentLines.size) {
+                    val divLine = divContentLines[dIdx]
+                    val dClean = divLine.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "").trim()
+                    val dLower = dClean.lowercase()
+
+                    // 0. Horizontal divider inside container (--- or *** or ___ or <hr> or <hr/> or <hr />)
+                    if (isThematicBreak(dClean)) {
+                        htmlContent.append("<hr class='horizontal-divider'>\n")
+                        dIdx++
+                        continue
+                    }
+
+                    // 1. HTML table inside container
+                    if (dLower.startsWith("<table")) {
+                        val tableLines = mutableListOf<String>()
+                        var tk = dIdx
+                        while (tk < divContentLines.size) {
+                            val tLine = divContentLines[tk]
+                            tableLines.add(tLine)
+                            if (tLine.trim().lowercase().contains("</table>")) {
+                                tk++
+                                break
+                            }
+                            tk++
+                        }
+                        val fullTableHtml = tableLines.joinToString("\n")
+                        val isTableRtl = TextRepairProcessor.isParagraphRtl(fullTableHtml)
+                        val tableDir = if (isTableRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                        htmlContent.append("<div class='table-wrapper' $tableDir>\n$fullTableHtml\n</div>\n")
+                        dIdx = tk
+                        continue
+                    }
+
+                    // 2. Markdown table inside container
+                    if (dClean.startsWith("|") && dClean.endsWith("|")) {
+                        if (dIdx + 1 < divContentLines.size) {
+                            val nextLine = divContentLines[dIdx + 1]
+                            val nextClean = nextLine.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "").trim()
+                            if (isTableDivider(nextClean)) {
+                                val headerCols = parseTableLine(dClean)
+                                val dividerCols = parseTableLine(nextClean)
+                                val alignments = dividerCols.map { parseAlignment(it) }
+
+                                val dataRows = mutableListOf<List<String>>()
+                                var rk = dIdx + 2
+                                while (rk < divContentLines.size) {
+                                    val rLine = divContentLines[rk]
+                                    val rClean = rLine.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "").trim()
+                                    if (rClean.startsWith("|") && rClean.endsWith("|") && !isTableDivider(rClean)) {
+                                        dataRows.add(parseTableLine(rClean))
+                                        rk++
+                                    } else {
+                                        break
+                                    }
+                                }
+
+                                val isTableRtl = TextRepairProcessor.isParagraphRtl(dClean)
+                                val tableDir = if (isTableRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                                htmlContent.append("<div class='table-wrapper' $tableDir>\n")
+                                htmlContent.append("<table>\n<thead>\n<tr>\n")
+                                headerCols.forEachIndexed { colIdx, headerColText ->
+                                    val align = alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEFT
+                                    val aClass = when (align) {
+                                        TableColumnAlignment.LEFT -> "text-left"
+                                        TableColumnAlignment.CENTER -> "text-center"
+                                        TableColumnAlignment.RIGHT -> "text-right"
+                                    }
+                                    val headerCellFormatted = formatHtmlInlineStyles(headerColText, referenceMap)
+                                    val cellRtl = TextRepairProcessor.isParagraphRtl(headerColText)
+                                    val cellDir = if (cellRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                                    htmlContent.append("<th class='$aClass' $cellDir>$headerCellFormatted</th>\n")
+                                }
+                                htmlContent.append("</tr>\n</thead>\n<tbody>\n")
+                                dataRows.forEach { rowCells ->
+                                    htmlContent.append("<tr>\n")
+                                    for (colIdx in headerCols.indices) {
+                                        val cellText = rowCells.getOrNull(colIdx) ?: ""
+                                        val align = alignments.getOrNull(colIdx) ?: TableColumnAlignment.LEFT
+                                        val aClass = when (align) {
+                                            TableColumnAlignment.LEFT -> "text-left"
+                                            TableColumnAlignment.CENTER -> "text-center"
+                                            TableColumnAlignment.RIGHT -> "text-right"
+                                        }
+                                        val cellFormatted = formatHtmlInlineStyles(cellText, referenceMap)
+                                        val cellRtl = TextRepairProcessor.isParagraphRtl(cellText)
+                                        val cellDir = if (cellRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                                        htmlContent.append("<td class='$aClass' $cellDir>$cellFormatted</td>\n")
+                                    }
+                                    htmlContent.append("</tr>\n")
+                                }
+                                htmlContent.append("</tbody>\n</table>\n</div>\n")
+                                dIdx = rk
+                                continue
+                            }
+                        }
+                    }
+
+                    // 3. Headings inside container (#, ##, ###, etc.)
+                    val headingMatch = Regex("^(#{1,6})\\s+(.*)").matchEntire(dClean)
+                    if (headingMatch != null) {
+                        val level = headingMatch.groupValues[1].length
+                        val hContent = headingMatch.groupValues[2].trim()
+                        val hFormatted = formatHtmlInlineStyles(hContent, referenceMap)
+                        val isRtl = TextRepairProcessor.isParagraphRtl(hContent)
+                        val dir = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                        htmlContent.append("<h$level $dir>$hFormatted</h$level>\n")
+                        dIdx++
+                        continue
+                    }
+
+                    // 4. Sub / Sup block inside container
+                    val isInnerSub = dLower.startsWith("<sub") && !dLower.contains("</sub>")
+                    val isInnerSup = dLower.startsWith("<sup") && !dLower.contains("</sup>")
+                    if (isInnerSub || isInnerSup) {
+                        val closeTagLower = if (isInnerSub) "</sub" else "</sup"
+                        val wrapTag = if (isInnerSub) "sub" else "sup"
+                        val subLines = mutableListOf<String>()
+                        val firstLineContent = dClean.replace(Regex("(?i)^<[\\s\\u00A0]*(sub|sup)[^>]*>"), "").trim()
+                        if (firstLineContent.isNotEmpty()) {
+                            subLines.add(firstLineContent)
+                        }
+                        var sk = dIdx + 1
+                        while (sk < divContentLines.size) {
+                            val sLine = divContentLines[sk]
+                            val sClean = sLine.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "").trim()
+                            val sLower = sClean.lowercase()
+                            if (sLower.contains(closeTagLower)) {
+                                val contentBeforeClose = sClean.replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(sub|sup)[\\s\\u00A0]*>.*$"), "").trim()
+                                if (contentBeforeClose.isNotEmpty()) {
+                                    subLines.add(contentBeforeClose)
+                                }
+                                sk++
+                                break
+                            }
+                            if (sLine.isNotBlank()) {
+                                subLines.add(sLine.trim())
+                            }
+                            sk++
+                        }
+                        for (sLine in subLines) {
+                            val formatted = formatHtmlInlineStyles(sLine, referenceMap)
+                            val isRtl = TextRepairProcessor.isParagraphRtl(sLine)
+                            val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                            htmlContent.append("<p $dirAttr><$wrapTag>$formatted</$wrapTag></p>\n")
+                        }
+                        dIdx = sk
+                        continue
+                    }
+
+                    // 5. Lone closing or empty tag - skip
+                    if (dClean.matches(Regex("(?i)^<[\\s\\u00A0]*/?[\\s\\u00A0]*(div|center|p|sub|sup)[^>]*>$")) || dClean.isEmpty()) {
+                        dIdx++
+                        continue
+                    }
+
+                    // 5.5. Consecutive badge / image lines inside container
+                    if (isImageOrBadgeLine(divLine)) {
+                        val badgeLines = mutableListOf<String>()
+                        var bk = dIdx
+                        while (bk < divContentLines.size && isImageOrBadgeLine(divContentLines[bk])) {
+                            badgeLines.add(divContentLines[bk].trim())
+                            bk++
+                        }
+                        val combinedBadges = badgeLines.joinToString(" ")
+                        val formatted = formatHtmlInlineStyles(combinedBadges, referenceMap)
+                        val isRtl = TextRepairProcessor.isParagraphRtl(combinedBadges)
+                        val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                        htmlContent.append("<p $dirAttr>$formatted</p>\n")
+                        dIdx = bk
+                        continue
+                    }
+
+                    // 6. Standard paragraph line with formatting
+                    val formatted = formatHtmlInlineStyles(divLine, referenceMap)
+                    val isRtl = TextRepairProcessor.isParagraphRtl(divLine)
+                    val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                    htmlContent.append("<p $dirAttr>$formatted</p>\n")
+                    dIdx++
+                }
+
+                htmlContent.append("</div>\n")
                 continue
             }
 
-            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center") || trimmedLower.startsWith("</p") || 
-                trimmedLower == "<sub>" || trimmedLower == "</sub>" || trimmedLower == "<sup>" || trimmedLower == "</sup>" ||
-                trimmedLower == "<p>" || trimmedLower == "</p>") {
+            if (trimmedClean.matches(Regex("(?i)^<[\\s\\u00A0]*/?[\\s\\u00A0]*(div|center|p|sub|sup)[^>]*>$")) || trimmedClean.isEmpty()) {
                 idx++
                 continue
             }
@@ -531,8 +776,8 @@ object HtmlExporter {
                 continue
             }
 
-            // 2. Horizontal Divider Line (--- or *** or ___)
-            if (trimmedClean == "---" || trimmedClean == "***" || trimmedClean == "___") {
+            // 2. Horizontal Divider Line (--- or *** or ___ or <hr>)
+            if (isThematicBreak(trimmedClean)) {
                 htmlContent.append("<hr class='horizontal-divider'>\n")
                 idx++
                 continue
@@ -674,6 +919,28 @@ object HtmlExporter {
                     while (openLists.isNotEmpty()) {
                         val closed = openLists.removeAt(openLists.size - 1)
                         htmlContent.append("</${closed.type}>\n")
+                    }
+
+                    if (tag == "p" && isImageOrBadgeLine(cleanParagraph)) {
+                        val badgeLines = mutableListOf<String>()
+                        var bk = idx
+                        while (bk < paragraphs.size) {
+                            val pLine = paragraphs[bk]
+                            val pClean = pLine.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "").trim()
+                            if (isImageOrBadgeLine(pClean)) {
+                                badgeLines.add(pClean)
+                                bk++
+                            } else {
+                                break
+                            }
+                        }
+                        val combinedBadges = badgeLines.joinToString(" ")
+                        val formattedText = formatHtmlInlineStyles(combinedBadges, referenceMap)
+                        val isRtl = TextRepairProcessor.isParagraphRtl(combinedBadges)
+                        val dirAttr = if (isRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                        htmlContent.append("<p $dirAttr>$formattedText</p>\n")
+                        idx = bk
+                        continue
                     }
 
                     val formattedText = formatHtmlInlineStyles(displayText, referenceMap)
@@ -1151,6 +1418,15 @@ object HtmlExporter {
                     .text-center { text-align: center; }
                     .text-right { text-align: right; }
 
+                    .text-center .table-wrapper {
+                        display: inline-block;
+                        text-align: initial;
+                        margin: 16px auto;
+                    }
+                    .text-center .table-wrapper table {
+                        width: auto;
+                    }
+
                     .block-math {
                         margin: 24px 0;
                         padding: 16px;
@@ -1189,10 +1465,11 @@ object HtmlExporter {
                     /* Inline images */
                     img.inline-img {
                         max-width: 100%;
-                        border-radius: 8px;
-                        margin: 16px 0;
-                        display: block;
-                        box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+                        height: auto;
+                        border-radius: 6px;
+                        margin: 4px 2px;
+                        display: inline-block;
+                        vertical-align: middle;
                     }
 
                     /* Abbreviation tooltip */
@@ -1301,6 +1578,35 @@ object HtmlExporter {
 
         outputStream.write(fullHtml.toByteArray(Charsets.UTF_8))
         outputStream.flush()
+    }
+
+    private fun isThematicBreak(line: String): Boolean {
+        val clean = line.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "").trim()
+        val lower = clean.lowercase()
+        if (lower == "<hr>" || lower == "<hr/>" || lower == "<hr />" || lower.startsWith("<hr ") || lower.startsWith("<hr/")) return true
+        if (clean.length < 3) return false
+        val nonSpace = clean.filter { !it.isWhitespace() }
+        if (nonSpace.length < 3) return false
+        val firstChar = nonSpace[0]
+        if (firstChar != '-' && firstChar != '*' && firstChar != '_') return false
+        return nonSpace.all { it == firstChar }
+    }
+
+    private fun isImageOrBadgeLine(line: String): Boolean {
+        val clean = line.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "").trim()
+        if (clean.isEmpty()) return false
+        var stripped = clean
+        // Strip markdown image with link: [![alt](img)](url) or [![alt](img)][ref]
+        stripped = stripped.replace(Regex("""\[!\[[^\]]*\]\([^\)]+\)\](?:\([^\)]+\)|\[[^\]]*\])"""), "")
+        // Strip markdown image: ![alt](url) or ![alt][ref]
+        stripped = stripped.replace(Regex("""!\[[^\]]*\](?:\([^\)]+\)|\[[^\]]*\])"""), "")
+        // Strip HTML image with link: <a ...><img ...></a>
+        stripped = stripped.replace(Regex("""(?is)<a\b[^>]*>\s*<img\b[^>]*\/?>\s*<\/a>"""), "")
+        // Strip HTML image: <img ... />
+        stripped = stripped.replace(Regex("""(?is)<img\b[^>]*\/?>"""), "")
+        // Strip common whitespace/bidi separators between badges
+        stripped = stripped.replace(Regex("""[\s\u00A0\u200B\u200C\u200D]+"""), "")
+        return stripped.isEmpty()
     }
 
     private enum class TableColumnAlignment {
@@ -1499,8 +1805,8 @@ object HtmlExporter {
             val rawLinkUrl = match.groupValues[3].trim()
             val imgUrlClean = rawImgUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
             val linkUrlClean = rawLinkUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-            val imgUrl = imgUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: imgUrlClean
-            val linkUrl = linkUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: linkUrlClean
+            val imgUrl = imgUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim()?.removePrefix("<")?.removeSuffix(">")?.replace("^[\"']".toRegex(), "")?.replace("[\"']$".toRegex(), "") ?: imgUrlClean
+            val linkUrl = linkUrlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim()?.removePrefix("<")?.removeSuffix(">")?.replace("^[\"']".toRegex(), "")?.replace("[\"']$".toRegex(), "") ?: linkUrlClean
             "<a href=\"$linkUrl\"><img class='inline-img' src=\"$imgUrl\" alt=\"$alt\"></a>"
         }
 
@@ -1509,7 +1815,7 @@ object HtmlExporter {
             val alt = match.groupValues[1].ifEmpty { "image" }
             val rawUrl = match.groupValues[2].trim()
             val urlClean = rawUrl.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "")
-            val url = urlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim() ?: urlClean
+            val url = urlClean.split(Regex("[\\s\\u00A0]+")).firstOrNull()?.trim()?.removePrefix("<")?.removeSuffix(">")?.replace("^[\"']".toRegex(), "")?.replace("[\"']$".toRegex(), "") ?: urlClean
             "<img class='inline-img' src=\"$url\" alt=\"$alt\">"
         }
 
