@@ -116,6 +116,12 @@ object MathRenderer {
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
+        webView.settings.allowFileAccess = true
+        webView.settings.allowContentAccess = true
+        try {
+            webView.settings.allowFileAccessFromFileURLs = true
+            webView.settings.allowUniversalAccessFromFileURLs = true
+        } catch (_: Exception) {}
         webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
         class WebAppInterface {
@@ -189,7 +195,11 @@ object MathRenderer {
         val decorView = activity?.window?.decorView as? android.view.ViewGroup
         if (decorView != null) {
             val params = android.widget.FrameLayout.LayoutParams(2000, 2000)
-            params.leftMargin = -10000
+            params.leftMargin = 0
+            params.topMargin = 0
+            webView.alpha = 0.01f
+            webView.isClickable = false
+            webView.isFocusable = false
             decorView.addView(webView, params)
         }
 

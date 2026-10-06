@@ -295,7 +295,7 @@ object TextRepairProcessor {
         // Match either an HTML tag (excluding sub/sup so formulas stay together) OR a strong Latin/math run (including extended Latin, sub/superscript, and inline sub/sup tags)
         val token = "(?:<sub[^>]*>.*?</sub>|<sup[^>]*>.*?</sup>|~[^~\\s]+~|\\^[^\\^\\s]+\\^|\\^[0-9a-zA-Z]+|[a-zA-Z0-9\\u00C0-\\u024F\\u00B2\\u00B3\\u00B9\\u2070-\\u209F\\u0370-\\u03FF\\u2200-\\u22FF])"
         val connectors = "[ _:\\/.\\-@#\\$|\\\\+, \t=+]"
-        val combinedRegex = Regex("(<(?!/?(?:sub|sup)\\b)[^>]+>)|($token(?:$connectors*$token)*)")
+        val combinedRegex = Regex("(<(?!/?(?:sub|sup)\\b)[^>]+>)|($token(?:$connectors*$token)*(?::)?)")
         
         return text.replace(combinedRegex) { matchResult ->
             val htmlTag = matchResult.groups[1]?.value

@@ -21,6 +21,76 @@ import java.io.OutputStream
 
 object NativePdfExporter {
 
+    private val escapeMap = listOf(
+        "\\\\" to "\uE000",
+        "\\`"  to "\uE001",
+        "\\*"  to "\uE002",
+        "\\_"  to "\uE003",
+        "\\{"  to "\uE004",
+        "\\}"  to "\uE005",
+        "\\["  to "\uE006",
+        "\\]"  to "\uE007",
+        "\\("  to "\uE008",
+        "\\)"  to "\uE009",
+        "\\#"  to "\uE00A",
+        "\\+"  to "\uE00B",
+        "\\-"  to "\uE00C",
+        "\\."  to "\uE00D",
+        "\\!"  to "\uE00E",
+        "\\|"  to "\uE00F",
+        "\\~"  to "\uE010"
+    )
+
+    private fun encodeEscapes(str: String): String {
+        var r = str
+        for (pair in escapeMap) {
+            r = r.replace(pair.first, pair.second)
+        }
+        return r
+    }
+
+    private fun decodeEscapesUnescaped(str: String): String {
+        var r = str
+        for (pair in escapeMap) {
+            val unescaped = pair.first.substring(1)
+            r = r.replace(pair.second, unescaped)
+        }
+        return r
+    }
+
+    private fun decodeEscapesEscaped(str: String): String {
+        var r = str
+        for (pair in escapeMap) {
+            r = r.replace(pair.second, pair.first)
+        }
+        return r
+    }
+
+    private fun cleanQuotes(value: String): String {
+        var clean = value.trim()
+        val quotePairs = listOf(
+            "\"" to "\"",
+            "'" to "'",
+            "“" to "”",
+            "“" to "“",
+            "”" to "”",
+            "‘" to "’",
+            "‘" to "‘",
+            "’" to "’",
+            "«" to "»",
+            "„" to "‟",
+            "＂" to "＂",
+            "＇" to "＇"
+        )
+        for (pair in quotePairs) {
+            if (clean.startsWith(pair.first) && clean.endsWith(pair.second)) {
+                clean = clean.removeSurrounding(pair.first, pair.second)
+                break
+            }
+        }
+        return clean
+    }
+
     /**
      * Advanced Markdown-aware PDF Exporter.
      * Parses markdown structures (headings, bullet lists, blockquotes, code blocks)
@@ -313,41 +383,42 @@ object NativePdfExporter {
                 else -> "image"
             }
             if (blockImgUrl != null) {
-                try {
-                    val conn = java.net.URL(blockImgUrl).openConnection() as java.net.HttpURLConnection
-                    conn.requestMethod = "GET"
-                    conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-                    conn.connectTimeout = 6000
-                    conn.readTimeout = 6000
-                    val rawBitmap = android.graphics.BitmapFactory.decodeStream(conn.inputStream)
-                    if (rawBitmap != null) {
-                        val maxW = printableWidth
-                        val scale = if (rawBitmap.width > maxW) maxW / rawBitmap.width.toFloat() else 1f
-                        val drawW = rawBitmap.width * scale
-                        val drawH = rawBitmap.height * scale
-                        if (yOffset + drawH > pageHeight - margin) {
-                            pdfDocument.finishPage(currentPage)
-                            currentPageNumber++
-                            pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
-                            currentPage = pdfDocument.startPage(pageInfo)
-                            canvas = currentPage.canvas
-                            yOffset = margin
-                        }
-                        val left = margin + (printableWidth - drawW) / 2f
-                        val destRect = android.graphics.RectF(left, yOffset, left + drawW, yOffset + drawH)
-                        canvas.drawBitmap(rawBitmap, null, destRect, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
-                        yOffset += drawH + baseFontSize * 0.5f
-                        rawBitmap.recycle()
-                    } else {
-                        textPaint.textSize = baseFontSize; textPaint.typeface = regularTypeface; textPaint.color = Color.DKGRAY
-                        val fallback = SpannableStringBuilder("\uD83D\uDDBC\uFE0F $blockImgAlt")
-                        val fl = StaticLayout.Builder.obtain(fallback, 0, fallback.length, textPaint, printableWidth.toInt()).setAlignment(Layout.Alignment.ALIGN_CENTER).build()
-                        canvas.save(); canvas.translate(margin, yOffset); fl.draw(canvas); canvas.restore()
-                        yOffset += fl.height + baseFontSize * 0.3f
+                val cleanUrl = cleanQuotes(decodeEscapesUnescaped(blockImgUrl))
+                val rawBitmap = imageBitmaps[cleanUrl]
+                    ?: imageBitmaps[blockImgUrl]
+                    ?: imageBitmaps[cleanQuotes(blockImgUrl)]
+                    ?: try {
+                        val conn = java.net.URL(blockImgUrl).openConnection() as java.net.HttpURLConnection
+                        conn.requestMethod = "GET"
+                        conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                        conn.connectTimeout = 4000
+                        conn.readTimeout = 4000
+                        android.graphics.BitmapFactory.decodeStream(conn.inputStream)
+                    } catch (_: Exception) { null }
+                    ?: if (BadgeBitmapGenerator.isBadgeUrlOrAlt(cleanUrl, blockImgAlt)) {
+                        BadgeBitmapGenerator.generateBadge(cleanUrl, blockImgAlt)
+                    } else null
+
+                if (rawBitmap != null) {
+                    val maxW = printableWidth
+                    val scale = if (rawBitmap.width > maxW) maxW / rawBitmap.width.toFloat() else 1f
+                    val drawW = rawBitmap.width * scale
+                    val drawH = rawBitmap.height * scale
+                    if (yOffset + drawH > pageHeight - margin) {
+                        pdfDocument.finishPage(currentPage)
+                        currentPageNumber++
+                        pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                        currentPage = pdfDocument.startPage(pageInfo)
+                        canvas = currentPage.canvas
+                        yOffset = margin
                     }
-                } catch (_: Exception) {
+                    val left = margin + (printableWidth - drawW) / 2f
+                    val destRect = android.graphics.RectF(left, yOffset, left + drawW, yOffset + drawH)
+                    canvas.drawBitmap(rawBitmap, null, destRect, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+                    yOffset += drawH + baseFontSize * 0.5f
+                } else {
                     textPaint.textSize = baseFontSize; textPaint.typeface = regularTypeface; textPaint.color = Color.DKGRAY
-                    val fallback = SpannableStringBuilder("\uD83D\uDDBC\uFE0F $blockImgAlt")
+                    val fallback = SpannableStringBuilder("\u2066\uD83D\uDDBC\uFE0F $blockImgAlt\u2069")
                     val fl = StaticLayout.Builder.obtain(fallback, 0, fallback.length, textPaint, printableWidth.toInt()).setAlignment(Layout.Alignment.ALIGN_CENTER).build()
                     canvas.save(); canvas.translate(margin, yOffset); fl.draw(canvas); canvas.restore()
                     yOffset += fl.height + baseFontSize * 0.3f
@@ -848,6 +919,30 @@ object NativePdfExporter {
                         val dClean = divLine.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
                         val dLower = dClean.lowercase()
 
+                        // 0. Horizontal divider inside container (--- or *** or ___ or <hr> or <hr/>)
+                        if (dClean == "---" || dClean == "***" || dClean == "___" || 
+                            dLower == "<hr>" || dLower == "<hr/>" || dLower == "<hr />") {
+                            val dividerHeight = baseFontSize * 1.5f
+                            if (yOffset + dividerHeight > pageHeight - margin) {
+                                pdfDocument.finishPage(currentPage)
+                                currentPageNumber++
+                                pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                                currentPage = pdfDocument.startPage(pageInfo)
+                                canvas = currentPage.canvas
+                                yOffset = margin
+                            }
+                            val linePaint = Paint().apply {
+                                color = Color.rgb(226, 228, 236)
+                                strokeWidth = 1.5f
+                                style = Paint.Style.STROKE
+                            }
+                            val lineY = yOffset + (dividerHeight / 2f)
+                            canvas.drawLine(margin, lineY, margin + printableWidth, lineY, linePaint)
+                            yOffset += dividerHeight
+                            dIdx++
+                            continue
+                        }
+
                         // 1. HTML table inside container
                         if (dLower.startsWith("<table")) {
                             val tableLines = mutableListOf<String>()
@@ -1069,8 +1164,7 @@ object NativePdfExporter {
                         }
 
                         // 4. Lone closing or empty tag - skip
-                        if (dLower == "</div>" || dLower == "</center>" || dLower == "</p>" || dLower == "<p>" || 
-                            dLower == "<sub>" || dLower == "</sub>" || dLower == "<sup>" || dLower == "</sup>" || dClean.isEmpty()) {
+                        if (dClean.matches(Regex("(?i)^<[\\s\\u00A0]*/?[\\s\\u00A0]*(div|center|p|sub|sup)[^>]*>$")) || dClean.isEmpty()) {
                             dIdx++
                             continue
                         }
@@ -1116,9 +1210,7 @@ object NativePdfExporter {
                 }
                 continue
             }
-            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center") || trimmedLower.startsWith("</p") || 
-                trimmedLower == "<sub>" || trimmedLower == "</sub>" || trimmedLower == "<sup>" || trimmedLower == "</sup>" ||
-                trimmedLower == "<p>" || trimmedLower == "</p>") {
+            if (trimmedClean.matches(Regex("(?i)^<[\\s\\u00A0]*/?[\\s\\u00A0]*(div|center|p|sub|sup)[^>]*>$")) || trimmedClean.isEmpty()) {
                 idx++
                 continue
             }
@@ -2183,51 +2275,6 @@ object NativePdfExporter {
         referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
         imageBitmaps: Map<String, android.graphics.Bitmap> = emptyMap()
     ): Spanned {
-        val escapeMap = listOf(
-            "\\\\" to "\uE000",
-            "\\`"  to "\uE001",
-            "\\*"  to "\uE002",
-            "\\_"  to "\uE003",
-            "\\{"  to "\uE004",
-            "\\}"  to "\uE005",
-            "\\["  to "\uE006",
-            "\\]"  to "\uE007",
-            "\\("  to "\uE008",
-            "\\)"  to "\uE009",
-            "\\#"  to "\uE00A",
-            "\\+"  to "\uE00B",
-            "\\-"  to "\uE00C",
-            "\\."  to "\uE00D",
-            "\\!"  to "\uE00E",
-            "\\|"  to "\uE00F",
-            "\\~"  to "\uE010"
-        )
-
-        fun encodeEscapes(str: String): String {
-            var r = str
-            for (pair in escapeMap) {
-                r = r.replace(pair.first, pair.second)
-            }
-            return r
-        }
-
-        fun decodeEscapesUnescaped(str: String): String {
-            var r = str
-            for (pair in escapeMap) {
-                val unescaped = pair.first.substring(1)
-                r = r.replace(pair.second, unescaped)
-            }
-            return r
-        }
-
-        fun decodeEscapesEscaped(str: String): String {
-            var r = str
-            for (pair in escapeMap) {
-                r = r.replace(pair.second, pair.first)
-            }
-            return r
-        }
-
         fun decodeSpannable(sb: SpannableStringBuilder): Spanned {
             val decodedText = decodeEscapesUnescaped(sb.toString())
             val finalStr = SpannableStringBuilder(decodedText)
@@ -2247,34 +2294,9 @@ object NativePdfExporter {
         val builder = SpannableStringBuilder()
         var index = 0
 
-        fun cleanQuotes(value: String): String {
-            var clean = value.trim()
-            val quotePairs = listOf(
-                "\"" to "\"",
-                "'" to "'",
-                "“" to "”",
-                "“" to "“",
-                "”" to "”",
-                "‘" to "’",
-                "‘" to "‘",
-                "’" to "’",
-                "«" to "»",
-                "„" to "‟",
-                "＂" to "＂",
-                "＇" to "＇"
-            )
-            for (pair in quotePairs) {
-                if (clean.startsWith(pair.first) && clean.endsWith(pair.second)) {
-                    clean = clean.removeSurrounding(pair.first, pair.second)
-                    break
-                }
-            }
-            return clean
-        }
-
         // Match all advanced markdown/html structures precisely
         // NOTE: Do NOT use (?s) / dotall — it causes patterns like **...** to span across lines
-        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|<b>[^\\n]*?</b>|<i>[^\\n]*?</i>|<ruby>[\\s\\S]*?</ruby>|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<del>[^\\n]*?</del>|<ins>[^\\n]*?</ins>|<mark>[^\\n]*?</mark>|<u>[^\\n]*?</u>|<sub>[^\\n]*?</sub>|<sup>[^\\n]*?</sup>|<img\\b[^>]*\\/?>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|\\\\\\([\\s\\S]*?\\\\\\)|\\\\\\[[\\s\\S]*?\\\\\\]|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
+        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|<b>[^\\n]*?</b>|<i>[^\\n]*?</i>|<ruby>[\\s\\S]*?</ruby>|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<del>[^\\n]*?</del>|<ins>[^\\n]*?</ins>|<mark>[^\\n]*?</mark>|<u>[^\\n]*?</u>|<sub>[^\\n]*?</sub>|<sup>[^\\n]*?</sup>|<img\\b[^>]*\\/?>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|(?:\u2066|\u200E|\u200F)?\\[[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*\\^[^\\]]+\\](?:\u2069|\u200E|\u200F)?|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|\\\\\\([\\s\\S]*?\\\\\\)|\\\\\\[[\\s\\S]*?\\\\\\]|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
         val matches = regex.findAll(res)
 
         for (match in matches) {
@@ -2368,12 +2390,35 @@ object NativePdfExporter {
                     builder.setSpan(android.text.style.RelativeSizeSpan(0.75f), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("<img") -> {
+                    val srcMatch = Regex("""(?i)src\s*=\s*["']([^"']*)["']""").find(matchedTextClean)
                     val altMatch = Regex("""(?i)alt\s*=\s*["']([^"']*)["']""").find(matchedTextClean)
                     val altText = altMatch?.groupValues?.get(1)?.ifEmpty { "image" } ?: "image"
+                    val src = srcMatch?.groupValues?.get(1)?.trim()
+                    val bitmap = if (src != null) {
+                        val cleanSrc = cleanQuotes(decodeEscapesUnescaped(src))
+                        imageBitmaps[cleanSrc]
+                            ?: imageBitmaps[src]
+                            ?: if (BadgeBitmapGenerator.isBadgeUrlOrAlt(cleanSrc, altText)) {
+                                BadgeBitmapGenerator.generateBadge(cleanSrc, altText)
+                            } else null
+                    } else null
+
                     val start = builder.length
-                    builder.append("\uD83D\uDDBC $altText")
-                    builder.setSpan(android.text.style.ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    if (bitmap != null) {
+                        val drawable = android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
+                        val maxW = (baseFontSize * 30).coerceAtMost(500f)
+                        val scale = (maxW / bitmap.width).coerceAtMost(1f)
+                        val w = (bitmap.width * scale).toInt()
+                        val h = (bitmap.height * scale).toInt()
+                        drawable.setBounds(0, 0, w, h)
+                        val span = android.text.style.ImageSpan(drawable, android.text.style.DynamicDrawableSpan.ALIGN_BOTTOM)
+                        builder.append(" ")
+                        builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    } else {
+                        builder.append("\u2066\uD83D\uDDBC\uFE0F $altText\u2069")
+                        builder.setSpan(android.text.style.ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
                 }
                 matchedTextLower.startsWith("<b>") && matchedTextLower.endsWith("</b>") -> {
                     val start = builder.length
@@ -2451,7 +2496,13 @@ object NativePdfExporter {
                         val linkUrl = cleanQuotes(decodeEscapesUnescaped(linkUrlParts[0]))
                         
                         val start = builder.length
-                        val bitmap = imageBitmaps[decodedImgUrl] ?: imageBitmaps[imgUrl]
+                        val bitmap = imageBitmaps[decodedImgUrl] 
+                            ?: imageBitmaps[imgUrl]
+                            ?: imageBitmaps[cleanQuotes(rawImgUrl)]
+                            ?: if (BadgeBitmapGenerator.isBadgeUrlOrAlt(decodedImgUrl, altText)) {
+                                BadgeBitmapGenerator.generateBadge(decodedImgUrl, altText)
+                            } else null
+
                         if (bitmap != null) {
                             val drawable = android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
                             val maxW = (baseFontSize * 30).coerceAtMost(500f)
@@ -2465,7 +2516,7 @@ object NativePdfExporter {
                             builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                             builder.setSpan(android.text.style.URLSpan(linkUrl), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         } else {
-                            builder.append("\uD83D\uDDBC\uFE0F $altText")
+                            builder.append("\u2066\uD83D\uDDBC\uFE0F $altText\u2069")
                             builder.setSpan(ForegroundColorSpan(Color.BLUE), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                             builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                             builder.setSpan(android.text.style.URLSpan(linkUrl), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -2485,7 +2536,13 @@ object NativePdfExporter {
                         val decodedUrl = decodeEscapesUnescaped(url)
                         
                         val start = builder.length
-                        val bitmap = imageBitmaps[decodedUrl] ?: imageBitmaps[url]
+                        val bitmap = imageBitmaps[decodedUrl] 
+                            ?: imageBitmaps[url]
+                            ?: imageBitmaps[cleanQuotes(rawUrl)]
+                            ?: if (BadgeBitmapGenerator.isBadgeUrlOrAlt(decodedUrl, altText)) {
+                                BadgeBitmapGenerator.generateBadge(decodedUrl, altText)
+                            } else null
+
                         if (bitmap != null) {
                             val drawable = android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
                             // Scale down to a reasonable max width (e.g. 500px, but scaled by fontSize)
@@ -2500,7 +2557,7 @@ object NativePdfExporter {
                             builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         } else {
                             // Fallback to text if not preloaded
-                            builder.append("\uD83D\uDDBC\uFE0F $altText")
+                            builder.append("\u2066\uD83D\uDDBC\uFE0F $altText\u2069")
                             builder.setSpan(ForegroundColorSpan(Color.rgb(80, 80, 80)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                             builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                         }
@@ -2549,8 +2606,10 @@ object NativePdfExporter {
                         builder.append(matchedText)
                     }
                 }
-                matchedTextClean.startsWith("[^") && matchedTextClean.endsWith("]") -> {
-                    val refId = matchedTextClean.substring(matchedTextClean.indexOf('^') + 1, matchedTextClean.length - 1)
+                matchedTextClean.trim().contains("^") && matchedTextClean.trim().startsWith("[") && matchedTextClean.trim().endsWith("]") &&
+                !matchedTextClean.contains("](") && !matchedTextClean.contains("][") -> {
+                    val clean = matchedTextClean.trim()
+                    val refId = clean.substring(clean.indexOf('^') + 1, clean.length - 1).trim()
                     val start = builder.length
                     builder.append("[$refId]")
                     builder.setSpan(android.text.style.SuperscriptSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)

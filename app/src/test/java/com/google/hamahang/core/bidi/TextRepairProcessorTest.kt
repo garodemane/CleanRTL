@@ -333,6 +333,25 @@ class TextRepairProcessorTest {
         assertEquals("<sup>", TextRepairProcessor.repairText("<sup>"))
         assertEquals("</sup>", TextRepairProcessor.repairText("</sup>"))
     }
+
+    @Test
+    fun testTrailingColonAttachedToLtrRunInRtlTitle() {
+        val lri = 0x2066.toChar()
+        val pdi = 0x2069.toChar()
+        val title = "### نمودار فلوچارت / Flowchart / Flussdiagramm:"
+        val repaired = TextRepairProcessor.repairText(title)
+        
+        // Assert that the colon is included INSIDE the LTR isolate with Flussdiagramm:
+        assertTrue("Colon must be inside LTR isolate to avoid flipping to :Flowchart",
+            repaired.contains("Flussdiagramm:${pdi}"))
+        assertFalse("Colon must not be placed outside LTR isolate",
+            repaired.contains("${pdi}:"))
+
+        val boldTitle = "**تصویر لینک‌دار / Clickable Image / Klickbares Bild:**"
+        val repairedBold = TextRepairProcessor.repairText(boldTitle)
+        assertTrue("Colon in bold title must be inside LTR isolate",
+            repairedBold.contains("Klickbares Bild:${pdi}"))
+    }
 }
 
 

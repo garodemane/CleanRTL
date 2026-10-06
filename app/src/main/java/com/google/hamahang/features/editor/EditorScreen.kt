@@ -57,6 +57,7 @@ import com.google.hamahang.core.bidi.AppThemeMode
 import com.google.hamahang.core.bidi.Loc
 import com.google.hamahang.core.bidi.TextRepairProcessor
 import com.google.hamahang.core.pdf.NativePdfExporter
+import com.google.hamahang.core.pdf.BadgeBitmapGenerator
 import com.google.hamahang.core.html.HtmlExporter
 import com.google.hamahang.theme.CoralEnd
 import com.google.hamahang.theme.CoralStart
@@ -615,23 +616,53 @@ fun repairText(input: String): String {
 
                 // 4. Pre-download all image bitmaps
                 val imageBitmaps = mutableMapOf<String, android.graphics.Bitmap>()
+                val bidiClean = { str: String ->
+                    str.replace(Regex("[\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"), "").trim()
+                }
+
+                // Collect from ![alt](url), [![alt](url)](link), and <img src="url">
+                data class ImageCandidate(val rawUrl: String, val alt: String)
+                val candidates = mutableListOf<ImageCandidate>()
+
                 val imgRegex = Regex("!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)")
-                val imageMatches = imgRegex.findAll(correctedText)
-                for (match in imageMatches) {
-                    val rawUrl = match.groupValues[2].trim()
+                for (match in imgRegex.findAll(correctedText)) {
+                    candidates.add(ImageCandidate(match.groupValues[2].trim(), match.groupValues[1].trim()))
+                }
+
+                val imgLinkRegex = Regex("\\[!\\[([^\\]]*)\\]\\(([^\\)]+?)\\)\\]\\(([^\\)]+?)\\)")
+                for (match in imgLinkRegex.findAll(correctedText)) {
+                    candidates.add(ImageCandidate(match.groupValues[2].trim(), match.groupValues[1].trim()))
+                }
+
+                val htmlImgRegex = Regex("""(?i)<img\s+[^>]*src=["']([^"']+)["'][^>]*>""")
+                val htmlAltRegex = Regex("""(?i)alt=["']([^"']*)["']""")
+                for (match in htmlImgRegex.findAll(correctedText)) {
+                    val src = match.groupValues[1].trim()
+                    val alt = htmlAltRegex.find(match.value)?.groupValues?.get(1)?.trim() ?: "image"
+                    candidates.add(ImageCandidate(src, alt))
+                }
+
+                for (candidate in candidates) {
+                    val rawUrl = candidate.rawUrl
                     val urlParts = rawUrl.split(Regex("[\\s\\u00A0]+"))
-                    val url = urlParts[0].replace("^[\"']".toRegex(), "").replace("[\"']$".toRegex(), "")
-                    if (!imageBitmaps.containsKey(url)) {
+                    val rawUrlFirst = urlParts[0].replace("^[\"']".toRegex(), "").replace("[\"']$".toRegex(), "")
+                    val cleanUrl = bidiClean(rawUrlFirst)
+                    val cleanAlt = bidiClean(candidate.alt)
+
+                    if (cleanUrl.isNotBlank() && !imageBitmaps.containsKey(cleanUrl)) {
+                        var bmp: android.graphics.Bitmap? = null
+
+                        // 1. Try downloading via Coil
                         try {
-                            val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                kotlinx.coroutines.withTimeoutOrNull(10000L) {
+                            bmp = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                kotlinx.coroutines.withTimeoutOrNull(8000L) {
                                     val loader = coil.ImageLoader.Builder(context)
                                         .components {
                                             add(coil.decode.SvgDecoder.Factory())
                                         }
                                         .build()
                                     val request = coil.request.ImageRequest.Builder(context)
-                                        .data(url)
+                                        .data(cleanUrl)
                                         .allowHardware(false)
                                         .build()
                                     val drawable = (loader.execute(request) as? coil.request.SuccessResult)?.drawable
@@ -640,19 +671,33 @@ fun repairText(input: String): String {
                                     } else if (drawable != null) {
                                         val w = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 300
                                         val h = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 80
-                                        val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
-                                        val cv = android.graphics.Canvas(bmp)
+                                        val b = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                                        val cv = android.graphics.Canvas(b)
                                         drawable.setBounds(0, 0, w, h)
                                         drawable.draw(cv)
-                                        bmp
+                                        b
                                     } else null
                                 }
                             }
-                            if (bitmap != null) {
-                                imageBitmaps[url] = bitmap
-                            }
                         } catch (e: Exception) {
-                            android.util.Log.e("PdfExport", "Failed to load image: $url", e)
+                            android.util.Log.e("PdfExport", "Coil failed to load image: $cleanUrl", e)
+                        }
+
+                        // 2. If Coil failed or returned null (e.g. offline) and this is a badge, generate high-res replica locally!
+                        if (bmp == null && BadgeBitmapGenerator.isBadgeUrlOrAlt(cleanUrl, cleanAlt)) {
+                            try {
+                                bmp = BadgeBitmapGenerator.generateBadge(cleanUrl, cleanAlt)
+                            } catch (e: Exception) {
+                                android.util.Log.e("PdfExport", "BadgeBitmapGenerator failed for $cleanUrl", e)
+                            }
+                        }
+
+                        // 3. Store under all variations of the URL key
+                        if (bmp != null) {
+                            imageBitmaps[cleanUrl] = bmp
+                            imageBitmaps[rawUrlFirst] = bmp
+                            imageBitmaps[rawUrl] = bmp
+                            imageBitmaps[bidiClean(rawUrl)] = bmp
                         }
                     }
                 }

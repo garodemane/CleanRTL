@@ -28,6 +28,8 @@ object MermaidRenderer {
         val cleanCode = mermaidCode.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
         val mermaidTheme = if (isDark) "dark" else "default"
 
+        val escapedCode = cleanCode.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
         val htmlContent = """
             <!DOCTYPE html>
             <html>
@@ -35,77 +37,6 @@ object MermaidRenderer {
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <script src="file:///android_asset/mermaid/mermaid.min.js"></script>
-                <script>
-                    mermaid.initialize({
-                        startOnLoad: true,
-                        theme: '$mermaidTheme',
-                        securityLevel: 'loose',
-                        fontFamily: 'Vazirmatn, sans-serif',
-                        gantt: {
-                            titleTopMargin: 25,
-                            barHeight: 24,
-                            barGap: 4,
-                            topPadding: 50,
-                            sidePadding: 75,
-                            fontSize: 12,
-                            sectionFontSize: 12,
-                            numberSectionStyles: 4,
-                            axisFormat: '%Y-%m-%d',
-                            useMaxWidth: false
-                        }
-                    });
-                    
-                    window.onload = function() {
-                        var container = document.getElementById('mermaid-container');
-                        
-                        // Check if it's already rendered
-                        var svgs = document.getElementsByTagName('svg');
-                        if (svgs.length > 0) {
-                            reportComplete(svgs[0], container);
-                            return;
-                        }
-
-                        // Otherwise wait for it
-                        var observer = new MutationObserver(function(mutations) {
-                            var svgs = document.getElementsByTagName('svg');
-                            if (svgs.length > 0) {
-                                observer.disconnect();
-                                // Wait a tiny bit for the browser to layout the SVG
-                                setTimeout(function() {
-                                    reportComplete(svgs[0], container);
-                                }, 100);
-                            }
-                        });
-                        
-                        observer.observe(document.body, { childList: true, subtree: true });
-                        
-                        // Fallback timeout in case mermaid fails silently
-                        setTimeout(function() {
-                            var svgs = document.getElementsByTagName('svg');
-                            if (svgs.length === 0) {
-                                observer.disconnect();
-                                if (window.AndroidInterface) {
-                                    window.AndroidInterface.onError("Timeout: No SVG element found after rendering.");
-                                }
-                            }
-                        }, 5000);
-                    };
-
-                    function reportComplete(svg, container) {
-                        try {
-                            var rect = svg.getBoundingClientRect();
-                            var width = rect.width || container.scrollWidth || 500;
-                            var height = rect.height || container.scrollHeight || 300;
-                            if (window.AndroidInterface) {
-                                window.AndroidInterface.onRenderComplete(Math.ceil(width), Math.ceil(height));
-                            }
-                        } catch (err) {
-                            if (window.AndroidInterface) {
-                                window.AndroidInterface.onError("JS Error in reportComplete: " + err.message);
-                            }
-                        }
-                    }
-                </script>
                 <style>
                     @font-face {
                         font-family: 'Vazirmatn';
@@ -136,14 +67,117 @@ object MermaidRenderer {
             </head>
             <body>
                 <div id="mermaid-container">
-                    <pre class="mermaid">$cleanCode</pre>
+                    <pre class="mermaid" id="mermaid-code">$escapedCode</pre>
                 </div>
+                <script>
+                    function reportComplete(svg, container) {
+                        try {
+                            var width = 600;
+                            var height = 400;
+                            if (svg) {
+                                var rect = svg.getBoundingClientRect();
+                                if (rect.width > 0) width = rect.width;
+                                if (rect.height > 0) height = rect.height;
+                                if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width > 0) {
+                                    if (rect.width <= 0) width = svg.viewBox.baseVal.width;
+                                    if (rect.height <= 0) height = svg.viewBox.baseVal.height;
+                                }
+                            } else if (container) {
+                                width = container.scrollWidth || 600;
+                                height = container.scrollHeight || 400;
+                            }
+                            if (window.AndroidInterface) {
+                                window.AndroidInterface.onRenderComplete(Math.ceil(width), Math.ceil(height));
+                            }
+                        } catch (err) {
+                            if (window.AndroidInterface) {
+                                window.AndroidInterface.onError("JS Error in reportComplete: " + err.message);
+                            }
+                        }
+                    }
+
+                    async function initMermaid() {
+                        if (typeof mermaid === 'undefined') {
+                            setTimeout(initMermaid, 50);
+                            return;
+                        }
+                        try {
+                            mermaid.initialize({
+                                startOnLoad: false,
+                                theme: '$mermaidTheme',
+                                securityLevel: 'loose',
+                                fontFamily: 'Vazirmatn, sans-serif',
+                                gantt: {
+                                    titleTopMargin: 25,
+                                    barHeight: 24,
+                                    barGap: 4,
+                                    topPadding: 50,
+                                    sidePadding: 75,
+                                    fontSize: 12,
+                                    sectionFontSize: 12,
+                                    numberSectionStyles: 4,
+                                    axisFormat: '%Y-%m-%d',
+                                    useMaxWidth: false
+                                }
+                            });
+
+                            var container = document.getElementById('mermaid-container');
+                            var codePre = document.getElementById('mermaid-code');
+                            var codeText = codePre ? codePre.textContent : "";
+
+                            try {
+                                var renderResult = await mermaid.render('mermaid-svg-chart', codeText);
+                                container.innerHTML = renderResult.svg;
+                                var svg = container.querySelector('svg');
+                                setTimeout(function() {
+                                    reportComplete(svg, container);
+                                }, 100);
+                            } catch (renderErr) {
+                                mermaid.run({ nodes: [codePre] }).then(function() {
+                                    var svg = container.querySelector('svg');
+                                    setTimeout(function() {
+                                        reportComplete(svg, container);
+                                    }, 100);
+                                }).catch(function(runErr) {
+                                    if (window.AndroidInterface) {
+                                        window.AndroidInterface.onError("Render failure: " + runErr.message);
+                                    }
+                                });
+                            }
+                        } catch (initErr) {
+                            if (window.AndroidInterface) {
+                                window.AndroidInterface.onError("Init failure: " + initErr.message);
+                            }
+                        }
+                    }
+
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', initMermaid);
+                    } else {
+                        initMermaid();
+                    }
+
+                    setTimeout(function() {
+                        var svgs = document.getElementsByTagName('svg');
+                        if (svgs.length === 0) {
+                            if (window.AndroidInterface) {
+                                window.AndroidInterface.onError("Timeout: No SVG element found after rendering.");
+                            }
+                        }
+                    }, 6000);
+                </script>
             </body>
             </html>
         """.trimIndent()
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
+        webView.settings.allowFileAccess = true
+        webView.settings.allowContentAccess = true
+        try {
+            webView.settings.allowFileAccessFromFileURLs = true
+            webView.settings.allowUniversalAccessFromFileURLs = true
+        } catch (_: Exception) {}
         webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
         class WebAppInterface {
@@ -156,8 +190,6 @@ object MermaidRenderer {
                         val h = (height + 40).coerceAtMost(2000)
                         
                         // Chromium has already composited the 2000x2000 WebView.
-                        // If we resize the WebView here and draw immediately, it will draw blank.
-                        // So we draw the existing 2000x2000 WebView into a full bitmap, then crop it.
                         val fullBitmap = Bitmap.createBitmap(2000, 2000, Bitmap.Config.ARGB_8888)
                         val canvas = Canvas(fullBitmap)
                         webView.draw(canvas)
@@ -220,15 +252,18 @@ object MermaidRenderer {
         val decorView = activity?.window?.decorView as? android.view.ViewGroup
         if (decorView != null) {
             val params = android.widget.FrameLayout.LayoutParams(2000, 2000)
-            // Hide it way off screen
-            params.leftMargin = -10000
+            params.leftMargin = 0
+            params.topMargin = 0
+            webView.alpha = 0.01f
+            webView.isClickable = false
+            webView.isFocusable = false
             decorView.addView(webView, params)
         }
 
         try {
             webView.loadDataWithBaseURL("file:///android_asset/", htmlContent, "text/html", "UTF-8", null)
 
-            // Set a timeout of 8 seconds to prevent hanging if offline or if CDN is unreachable
+            // Set a timeout of 8 seconds to prevent hanging
             val result = withTimeoutOrNull(8000) {
                 deferred.await()
             }
