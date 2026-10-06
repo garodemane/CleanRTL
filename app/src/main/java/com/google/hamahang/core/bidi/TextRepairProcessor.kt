@@ -25,10 +25,23 @@ object TextRepairProcessor {
         var inCodeBlock = false
         var inMermaidBlock = false
         var inMathBlock = false
+        var inPreBlock = false
         val repairedParagraphs = paragraphs.map { paragraph ->
             val trimmed = paragraph.trim()
             // Strip bidi marks to robustly identify code blocks and language starts
             val cleanCodeBlockTrim = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
+            val cleanLower = cleanCodeBlockTrim.lowercase()
+            if (cleanLower.startsWith("<pre")) {
+                inPreBlock = true
+                return@map paragraph
+            }
+            if (inPreBlock) {
+                if (cleanLower.contains("</pre>")) {
+                    inPreBlock = false
+                }
+                return@map paragraph
+            }
+
             if (cleanCodeBlockTrim.startsWith("```")) {
                 if (cleanCodeBlockTrim.startsWith("```mermaid")) {
                     inMermaidBlock = true
@@ -172,12 +185,21 @@ object TextRepairProcessor {
         val directionAnalysisStr = cleanStr.replace(Regex("<[^>]*>"), "")
 
         // 5. If the paragraph contains ANY Persian character, it must be RTL
-        if (PERSIAN_CHAR_PATTERN.matcher(directionAnalysisStr).find()) {
+        if (PERSIAN_CHAR_PATTERN.matcher(directionAnalysisStr).find() ||
+            (directionAnalysisStr.isBlank() && PERSIAN_CHAR_PATTERN.matcher(cleanStr).find())) {
             return true
         }
 
         // 6. If no Persian characters exist, check if there are any strong Latin characters
-        if (STRONG_LATIN_PATTERN.matcher(directionAnalysisStr).find()) {
+        if (STRONG_LATIN_PATTERN.matcher(directionAnalysisStr).find() ||
+            (directionAnalysisStr.isBlank() && STRONG_LATIN_PATTERN.matcher(cleanStr).find())) {
+            return false
+        }
+
+        // 7. If line contains common code/syntax characters (braces, brackets, parentheses, HTML, operators, quotes)
+        // and has NO Persian characters, it must be LTR so code blocks, braces like '}', and tags are not mirrored!
+        val codeSymbolPattern = Regex("[{}()\\[\\];=<>/\\\\_+\\-*\"'|&^%#@~`:]")
+        if (codeSymbolPattern.containsMatchIn(cleanStr)) {
             return false
         }
 

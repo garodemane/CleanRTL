@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.google.hamahang.core.bidi.AppLanguage
 import com.google.hamahang.core.bidi.AppThemeMode
@@ -1464,6 +1465,110 @@ fun MarkdownPreviewPaneContents(
             continue
         }
 
+        // HTML Pre block (<pre><code>...</code></pre>)
+        if (cleanTrimmedLower.startsWith("<pre")) {
+            val preLines = mutableListOf<String>()
+            var k = idx
+            while (k < paragraphs.size) {
+                val line = paragraphs[k]
+                preLines.add(line)
+                if (line.trim().lowercase().contains("</pre>")) {
+                    k++
+                    break
+                }
+                k++
+            }
+            val rawPre = preLines.joinToString("\n")
+            val codeOnly = rawPre
+                .replace(Regex("(?is)^<pre[^>]*>"), "")
+                .replace(Regex("(?is)</pre>$"), "")
+                .replace(Regex("(?is)^<code[^>]*>"), "")
+                .replace(Regex("(?is)</code>$"), "")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+                .trim()
+            val lines = codeOnly.split("\n")
+            ComposeCodeBlock(lines = lines, fontSize = (baseFontSize * 0.85).sp)
+            idx = k
+            continue
+        }
+
+        // Check if this line starts an HTML table
+        if (cleanTrimmedLower.startsWith("<table")) {
+            val tableLines = mutableListOf<String>()
+            var k = idx
+            while (k < paragraphs.size) {
+                val line = paragraphs[k]
+                tableLines.add(line)
+                if (line.trim().lowercase().contains("</table>")) {
+                    k++
+                    break
+                }
+                k++
+            }
+            val parsed = parseHtmlTable(tableLines.joinToString("\n"))
+            if (parsed != null) {
+                MarkdownTable(
+                    headerColumns = parsed.headerColumns,
+                    dataRows = parsed.dataRows,
+                    alignments = parsed.alignments,
+                    baseFontSize = baseFontSize
+                )
+                idx = k
+                continue
+            }
+        }
+
+        // Check if this line is an HTML div / center alignment container
+        if (cleanTrimmedLower.startsWith("<div") || cleanTrimmedLower.startsWith("<center")) {
+            val alignment = parseDivAlignment(cleanTrimmedLower)
+            val isClosingSameLine = cleanTrimmedLower.contains("</div>") || cleanTrimmedLower.contains("</center>")
+            if (isClosingSameLine) {
+                val inner = cleanTrimmed
+                    .replace(Regex("(?i)^<[\\s\\u00A0]*(div[^>]*|center)[\\s\\u00A0]*>"), "")
+                    .replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(div|center)[\\s\\u00A0]*>$"), "")
+                    .trim()
+                if (inner.isNotEmpty()) {
+                    MarkdownParagraph(
+                        text = inner,
+                        fontSize = (baseFontSize * uiFontScale).sp,
+                        referenceMap = referenceMap,
+                        isJustified = isJustified,
+                        explicitAlignment = alignment
+                    )
+                }
+                idx++
+                continue
+            } else {
+                var k = idx + 1
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    val lineClean = line.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim().lowercase()
+                    if (lineClean.startsWith("</div") || lineClean.startsWith("</center") || lineClean.contains("</div>") || lineClean.contains("</center>")) {
+                        k++
+                        break
+                    }
+                    if (line.isNotBlank()) {
+                        MarkdownParagraph(
+                            text = line,
+                            fontSize = (baseFontSize * uiFontScale).sp,
+                            referenceMap = referenceMap,
+                            isJustified = isJustified,
+                            explicitAlignment = alignment
+                        )
+                    }
+                    k++
+                }
+                idx = k
+                continue
+            }
+        }
+        if (cleanTrimmedLower.startsWith("</div") || cleanTrimmedLower.startsWith("</center")) {
+            idx++
+            continue
+        }
+
         // Check if this line starts a table
         if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
             if (idx + 1 < paragraphs.size) {
@@ -1611,6 +1716,16 @@ fun MarkdownPreviewPaneContents(
                 val alt = match.groupValues[1]
                 val imgUrl = match.groupValues[2].trim()
                 MarkdownImage(url = imgUrl, alt = alt, linkUrl = null)
+            }
+            // HTML Image block: <img ...>
+            cleanTrimmedLower.startsWith("<img") -> {
+                val srcMatch = Regex("""(?i)src\s*=\s*["']([^"']*)["']""").find(cleanTrimmed)
+                val altMatch = Regex("""(?i)alt\s*=\s*["']([^"']*)["']""").find(cleanTrimmed)
+                val src = srcMatch?.groupValues?.get(1)?.trim() ?: ""
+                val alt = altMatch?.groupValues?.get(1)?.trim() ?: "image"
+                if (src.isNotEmpty()) {
+                    MarkdownImage(url = src, alt = alt, linkUrl = null)
+                }
             }
             fullyCleanTrimmed.startsWith(">") -> {
                 var quoteLevel = 0
@@ -2092,29 +2207,31 @@ fun ComposeCodeBlock(lines: List<String>, fontSize: androidx.compose.ui.unit.Tex
     val codeText = preprocessCodeBidi(rawCode)
     val highlightedCode = highlightCode(codeText)
     
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
-    ) {
-        Box(
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(12.dp)
+                .padding(vertical = 8.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
         ) {
-            Text(
-                text = highlightedCode,
-                style = TextStyle(
-                    fontSize = fontSize,
-                    fontFamily = FontFamily.Monospace,
-                    color = Color(0xFFD4D4D4),
-                    textAlign = TextAlign.Left,
-                    textDirection = TextDirection.Ltr
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = highlightedCode,
+                    style = TextStyle(
+                        fontSize = fontSize,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFFD4D4D4),
+                        textAlign = TextAlign.Left,
+                        textDirection = TextDirection.Ltr
+                    )
                 )
-            )
+            }
         }
     }
 }
@@ -2564,17 +2681,25 @@ fun MarkdownParagraph(
     text: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
     referenceMap: Map<String, Pair<String, String?>> = emptyMap(),
-    isJustified: Boolean = false
+    isJustified: Boolean = false,
+    explicitAlignment: TextAlign? = null
 ) {
     val isRtl = TextRepairProcessor.isParagraphRtl(text)
     val codeBgColor = MaterialTheme.colorScheme.secondaryContainer
+    val textAlign = explicitAlignment ?: if (isJustified) TextAlign.Justify else if (isRtl) TextAlign.Right else TextAlign.Left
+    val textDirection = when (explicitAlignment) {
+        TextAlign.Center -> if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+        TextAlign.Right -> TextDirection.Rtl
+        TextAlign.Left -> TextDirection.Ltr
+        else -> if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+    }
     Text(
         text = parseMarkdownInlineStyles(text, codeBgColor, referenceMap, inlineCodeTextColor = MaterialTheme.colorScheme.onSecondaryContainer),
         style = TextStyle(
             fontSize = fontSize,
             color = MaterialTheme.colorScheme.onSurface,
-            textAlign = if (isJustified) TextAlign.Justify else if (isRtl) TextAlign.Right else TextAlign.Left,
-            textDirection = if (isRtl) TextDirection.Rtl else TextDirection.Ltr
+            textAlign = textAlign,
+            textDirection = textDirection
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -2626,6 +2751,116 @@ fun parseAlignment(dividerCell: String): TableColumnAlignment {
         endsWithColon -> TableColumnAlignment.RIGHT
         else -> TableColumnAlignment.LEFT
     }
+}
+
+data class ParsedHtmlTable(
+    val headerColumns: List<String>,
+    val dataRows: List<List<String>>,
+    val alignments: List<TableColumnAlignment>
+)
+
+fun parseDivAlignment(tag: String): TextAlign? {
+    val lower = tag.lowercase()
+    return when {
+        lower.contains("text-align:\\s*center".toRegex()) || lower.contains("align=[\"']?center".toRegex()) || lower.startsWith("<center") -> TextAlign.Center
+        lower.contains("text-align:\\s*right".toRegex()) || lower.contains("align=[\"']?right".toRegex()) -> TextAlign.Right
+        lower.contains("text-align:\\s*left".toRegex()) || lower.contains("align=[\"']?left".toRegex()) -> TextAlign.Left
+        lower.contains("text-align:\\s*justify".toRegex()) || lower.contains("align=[\"']?justify".toRegex()) -> TextAlign.Justify
+        else -> null
+    }
+}
+
+fun parseHtmlTable(tableHtml: String): ParsedHtmlTable? {
+    val trRegex = Regex("(?is)<tr[^>]*>(.*?)</tr>")
+    val trMatches = trRegex.findAll(tableHtml).toList()
+    if (trMatches.isEmpty()) return null
+
+    val theadRegex = Regex("(?is)<thead[^>]*>(.*?)</thead>")
+    val theadMatch = theadRegex.find(tableHtml)
+    val theadTrs = if (theadMatch != null) trRegex.findAll(theadMatch.value).toList() else emptyList()
+
+    fun cleanCellContent(html: String): String {
+        return html
+            .replace(Regex("(?i)<br\\s*/?>"), " ")
+            .replace(Regex("<[^>]+>"), "")
+            .replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .trim()
+    }
+
+    val grid = mutableListOf<MutableList<String?>>()
+    var numCols = 0
+    val cellRegex = Regex("(?is)<(th|td)([^>]*)>(.*?)</\\1>")
+
+    for (trMatch in trMatches) {
+        val trContent = trMatch.groupValues[1]
+        val cells = cellRegex.findAll(trContent).toList()
+        if (cells.isEmpty()) continue
+
+        var r = grid.indexOfFirst { row -> row.any { it == null } }
+        if (r == -1) {
+            grid.add(mutableListOf())
+            r = grid.lastIndex
+        }
+
+        var c = 0
+        for (cellMatch in cells) {
+            val attrs = cellMatch.groupValues[2]
+            val content = cleanCellContent(cellMatch.groupValues[3])
+
+            val rowspanMatch = Regex("""(?i)rowspan\s*=\s*["']?(\d+)["']?""").find(attrs)
+            val colspanMatch = Regex("""(?i)colspan\s*=\s*["']?(\d+)["']?""").find(attrs)
+            val rowspan = rowspanMatch?.groupValues?.get(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+            val colspan = colspanMatch?.groupValues?.get(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+
+            while (c < grid[r].size && grid[r][c] != null) {
+                c++
+            }
+
+            for (dr in 0 until rowspan) {
+                while (grid.size <= r + dr) {
+                    grid.add(mutableListOf())
+                }
+                for (dc in 0 until colspan) {
+                    while (grid[r + dr].size <= c + dc) {
+                        grid[r + dr].add(null)
+                    }
+                    grid[r + dr][c + dc] = if (dr == 0 && dc == 0) content else (if (content.isNotEmpty()) " " else "")
+                }
+            }
+            c += colspan
+            if (c > numCols) numCols = c
+        }
+    }
+
+    for (row in grid) {
+        while (row.size < numCols) {
+            row.add("")
+        }
+    }
+
+    val totalRows = grid.size
+    if (totalRows == 0 || numCols == 0) return null
+
+    val numHeaderRows = if (theadTrs.isNotEmpty()) theadTrs.size.coerceAtMost(totalRows) else 1
+    val headerCols = (0 until numCols).map { col ->
+        val nonBlank = (0 until numHeaderRows)
+            .map { rowIdx -> grid[rowIdx].getOrNull(col)?.trim() ?: "" }
+            .filter { it.isNotEmpty() }
+        if (nonBlank.isNotEmpty()) nonBlank.last() else "Col ${col + 1}"
+    }
+
+    val dataRows = (numHeaderRows until totalRows).map { rowIdx ->
+        (0 until numCols).map { col ->
+            grid[rowIdx].getOrNull(col)?.trim() ?: ""
+        }
+    }
+
+    val alignments = (0 until numCols).map { TableColumnAlignment.LEFT }
+    return ParsedHtmlTable(headerCols, dataRows, alignments)
 }
 
 @Composable
@@ -2973,7 +3208,7 @@ fun parseMarkdownInlineStyles(
     }
 
     // Match images, bold+italic, bold, italic, ins, strong, em, dt, dd, inline code, inline math, HTML span/font/abbr, autolinks, auto-emails, footnotes, kbd, reference links, line breaks, emojis
-    val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]+?\\*\\*\\*|\\*\\*[^\\n]+?\\*\\*|__[^\\n]+?__|\\*[^\\n\\*]+?\\*|_[^_\\n\\r]+?_|~~.*?~~|<del>.*?</del>|<ins>.*?</ins>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\$|  $)")
+    val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]+?\\*\\*\\*|\\*\\*[^\\n]+?\\*\\*|__[^\\n]+?__|\\*[^\\n\\*]+?\\*|_[^_\\n\\r]+?_|~~.*?~~|<del>.*?</del>|<ins>.*?</ins>|<mark>.*?</mark>|<u>.*?</u>|<sub>.*?</sub>|<sup>.*?</sup>|<img\\b[^>]*\\/?>|<strong>.*?</strong>|<em>.*?</em>|<dt>.*?</dt>|<dd>.*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`.*?`|\\$\\$.*?\\$\\$|\\$.*?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(\\)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>.*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>.*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\$|  $)")
     val matches = regex.findAll(encodedInput)
 
     for (match in matches) {
@@ -3052,6 +3287,40 @@ fun parseMarkdownInlineStyles(
                 builder.pushStyle(SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
                 val content = matchedTextClean.substring(5, matchedTextClean.length - 6)
                 builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap))
+                builder.pop()
+            }
+            matchedTextLower.startsWith("<mark>") && matchedTextLower.endsWith("</mark>") -> {
+                builder.pushStyle(SpanStyle(background = Color(0xFFFFF176), color = Color.Black))
+                val content = matchedTextClean.substring(6, matchedTextClean.length - 7)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap, inlineCodeTextColor))
+                builder.pop()
+            }
+            matchedTextLower.startsWith("<u>") && matchedTextLower.endsWith("</u>") -> {
+                builder.pushStyle(SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
+                val content = matchedTextClean.substring(3, matchedTextClean.length - 4)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap, inlineCodeTextColor))
+                builder.pop()
+            }
+            matchedTextLower.startsWith("<sub>") && matchedTextLower.endsWith("</sub>") -> {
+                builder.pushStyle(SpanStyle(baselineShift = androidx.compose.ui.text.style.BaselineShift.Subscript, fontSize = 0.75.em))
+                val content = matchedTextClean.substring(5, matchedTextClean.length - 6)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap, inlineCodeTextColor))
+                builder.pop()
+            }
+            matchedTextLower.startsWith("<sup>") && matchedTextLower.endsWith("</sup>") -> {
+                builder.pushStyle(SpanStyle(baselineShift = androidx.compose.ui.text.style.BaselineShift.Superscript, fontSize = 0.75.em))
+                val content = matchedTextClean.substring(5, matchedTextClean.length - 6)
+                builder.append(parseMarkdownInlineStyles(content, codeBgColor, referenceMap, inlineCodeTextColor))
+                builder.pop()
+            }
+            matchedTextLower.startsWith("<img") -> {
+                val altMatch = Regex("""(?i)alt\s*=\s*["']([^"']*)["']""").find(matchedTextClean)
+                val altText = altMatch?.groupValues?.get(1)?.ifEmpty { "image" } ?: "image"
+                builder.pushStyle(SpanStyle(
+                    color = Color(0xFF0E8457),
+                    fontStyle = FontStyle.Italic
+                ))
+                builder.append("\uD83D\uDDBC $altText")
                 builder.pop()
             }
             matchedTextLower.startsWith("<strong>") && matchedTextLower.endsWith("</strong>") -> {

@@ -214,6 +214,91 @@ object HtmlExporter {
                 continue
             }
 
+            val trimmedLower = trimmedClean.lowercase()
+
+            // HTML Pre block (<pre><code>...</code></pre>)
+            if (trimmedLower.startsWith("<pre")) {
+                val preLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    preLines.add(line)
+                    if (line.trim().lowercase().contains("</pre>")) {
+                        k++
+                        break
+                    }
+                    k++
+                }
+                val fullPreHtml = preLines.joinToString("\n")
+                htmlContent.append("<div class='code-window'>\n$fullPreHtml\n</div>\n")
+                idx = k
+                continue
+            }
+
+            // HTML Table block (<table>...</table>)
+            if (trimmedLower.startsWith("<table")) {
+                val tableLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    tableLines.add(line)
+                    if (line.trim().lowercase().contains("</table>")) {
+                        k++
+                        break
+                    }
+                    k++
+                }
+                val fullTableHtml = tableLines.joinToString("\n")
+                val isTableRtl = TextRepairProcessor.isParagraphRtl(fullTableHtml)
+                val tableDir = if (isTableRtl) "dir='rtl' class='rtl'" else "dir='ltr' class='ltr'"
+                htmlContent.append("<div class='table-wrapper' $tableDir>\n$fullTableHtml\n</div>\n")
+                idx = k
+                continue
+            }
+
+            // HTML Div block
+            if (trimmedLower.startsWith("<div")) {
+                val divLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    divLines.add(line)
+                    if (line.trim().lowercase().contains("</div>")) {
+                        k++
+                        break
+                    }
+                    k++
+                }
+                val fullDivHtml = divLines.joinToString("\n")
+                htmlContent.append("$fullDivHtml\n")
+                idx = k
+                continue
+            }
+
+            // HTML Center block
+            if (trimmedLower.startsWith("<center")) {
+                val centerLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    centerLines.add(line)
+                    if (line.trim().lowercase().contains("</center>")) {
+                        k++
+                        break
+                    }
+                    k++
+                }
+                val fullCenterHtml = centerLines.joinToString("\n")
+                htmlContent.append("$fullCenterHtml\n")
+                idx = k
+                continue
+            }
+
+            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center")) {
+                idx++
+                continue
+            }
+
             // Check if this line starts a table (and not inside code block)
             if (trimmedClean.startsWith("|") && trimmedClean.endsWith("|")) {
                 if (idx + 1 < paragraphs.size) {
@@ -908,6 +993,13 @@ object HtmlExporter {
 
                     .spacer {
                         height: 12px;
+                    }
+
+                    mark {
+                        background-color: #ffe066;
+                        color: #111;
+                        padding: 1px 4px;
+                        border-radius: 3px;
                     }
 
                     hr.horizontal-divider {

@@ -2,6 +2,7 @@ package com.google.hamahang.core.bidi
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import com.google.hamahang.features.editor.isTableDivider
 import com.google.hamahang.features.editor.parseTableLine
@@ -247,6 +248,20 @@ class TextRepairProcessorTest {
         // and should NOT have directional isolates injected between the dollar signs and the letters.
         assertTrue("Should preserve Loss inline math cleanly", result.contains("${lri}${d}Loss${d}${pdi}") || result.contains("${d}Loss${d}"))
         assertTrue("Should preserve Cross-Entropy inline math cleanly", result.contains("${lri}${d}Cross-Entropy${d}${pdi}") || result.contains("${d}Cross-Entropy${d}"))
+    }
+
+    @Test
+    fun testCodeBraceAndHtmlTagsAreNotRtl() {
+        assertFalse("Closing brace '}' must be LTR", TextRepairProcessor.isParagraphRtl("}"))
+        assertFalse("Opening brace '{' must be LTR", TextRepairProcessor.isParagraphRtl("{"))
+        assertFalse("Closing paren with semicolon ');' must be LTR", TextRepairProcessor.isParagraphRtl(");"))
+        assertFalse("HTML div tag must be LTR", TextRepairProcessor.isParagraphRtl("<div style=\"text-align: center\">"))
+        assertFalse("HTML closing div tag must be LTR", TextRepairProcessor.isParagraphRtl("</div>"))
+        assertFalse("HTML table tag must be LTR", TextRepairProcessor.isParagraphRtl("<table>"))
+        assertFalse("HTML closing tr tag must be LTR", TextRepairProcessor.isParagraphRtl("</tr>"))
+        assertFalse("HTML img tag must be LTR", TextRepairProcessor.isParagraphRtl("<img alt=\"logo\" src=\"icon.jpg\">"))
+        assertTrue("Persian paragraph must be RTL", TextRepairProcessor.isParagraphRtl("سلام دنیا"))
+        assertTrue("Persian paragraph with code symbols must be RTL", TextRepairProcessor.isParagraphRtl("متن فارسی با نماد }"))
     }
 }
 

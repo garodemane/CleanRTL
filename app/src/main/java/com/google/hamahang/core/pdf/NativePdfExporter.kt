@@ -258,14 +258,19 @@ object NativePdfExporter {
             val cleanCodeBlockTrimForImg = trimmed.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim()
             val imgBlockMatch = Regex("^!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)$").find(cleanCodeBlockTrimForImg)
             val imgLinkBlockMatch = Regex("^\\[!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)\\]\\(([^)\\s]+)\\)$").find(cleanCodeBlockTrimForImg)
+            val htmlImgMatch = Regex("""(?i)^<img\s+[^>]*>$""").find(cleanCodeBlockTrimForImg)
+            val htmlSrcMatch = if (htmlImgMatch != null) Regex("""(?i)src\s*=\s*["']([^"']*)["']""").find(cleanCodeBlockTrimForImg) else null
+            val htmlAltMatch = if (htmlImgMatch != null) Regex("""(?i)alt\s*=\s*["']([^"']*)["']""").find(cleanCodeBlockTrimForImg) else null
             val blockImgUrl: String? = when {
                 imgLinkBlockMatch != null -> imgLinkBlockMatch.groupValues[2].trim()
                 imgBlockMatch != null -> imgBlockMatch.groupValues[2].trim()
+                htmlSrcMatch != null -> htmlSrcMatch.groupValues[1].trim()
                 else -> null
             }
             val blockImgAlt: String = when {
                 imgLinkBlockMatch != null -> imgLinkBlockMatch.groupValues[1].ifEmpty { "image" }
                 imgBlockMatch != null -> imgBlockMatch.groupValues[1].ifEmpty { "image" }
+                htmlAltMatch != null -> htmlAltMatch.groupValues[1].ifEmpty { "image" }
                 else -> "image"
             }
             if (blockImgUrl != null) {
@@ -443,6 +448,176 @@ object NativePdfExporter {
             }
             val listLevel = indentCount / 2
 
+
+            val trimmedLower = trimmedClean.lowercase()
+
+            // HTML Pre block (<pre><code>...</code></pre>)
+            if (trimmedLower.startsWith("<pre")) {
+                val preLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    preLines.add(line)
+                    if (line.trim().lowercase().contains("</pre>")) {
+                        k++
+                        break
+                    }
+                    k++
+                }
+                val rawPre = preLines.joinToString("\n")
+                val codeOnly = rawPre
+                    .replace(Regex("(?is)^<pre[^>]*>"), "")
+                    .replace(Regex("(?is)</pre>$"), "")
+                    .replace(Regex("(?is)^<code[^>]*>"), "")
+                    .replace(Regex("(?is)</code>$"), "")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&")
+                    .trim()
+                val lines = codeOnly.split("\n")
+                yOffset = drawCodeBlock(
+                    canvas, lines, textPaint, monospaceTypeface,
+                    margin, yOffset, printableWidth, pageHeight - margin,
+                    onNewPage = {
+                        pdfDocument.finishPage(currentPage)
+                        currentPageNumber++
+                        pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                        currentPage = pdfDocument.startPage(pageInfo)
+                        canvas = currentPage.canvas
+                        yOffset = margin
+                        canvas
+                    }
+                )
+                idx = k
+                continue
+            }
+
+            // HTML Table block (<table>...</table>)
+            if (trimmedLower.startsWith("<table")) {
+                val tableLines = mutableListOf<String>()
+                var k = idx
+                while (k < paragraphs.size) {
+                    val line = paragraphs[k]
+                    tableLines.add(line)
+                    if (line.trim().lowercase().contains("</table>")) {
+                        k++
+                        break
+                    }
+                    k++
+                }
+                val parsed = parseHtmlTable(tableLines.joinToString("\n"))
+                if (parsed != null) {
+                    yOffset = drawPdfTable(
+                        context = context,
+                        pdfDocument = pdfDocument,
+                        canvas = canvas,
+                        headerColumns = parsed.headerColumns,
+                        dataRows = parsed.dataRows,
+                        alignments = parsed.alignments,
+                        baseFontSize = baseFontSize,
+                        margin = margin,
+                        yStart = yOffset,
+                        width = printableWidth,
+                        pageHeight = pageHeight.toFloat(),
+                        pageWidth = pageWidth,
+                        regularTypeface = regularTypeface,
+                        boldTypeface = boldTypeface,
+                        italicTypeface = italicTypeface,
+                        isTableRtl = TextRepairProcessor.isParagraphRtl(tableLines.joinToString(" ")),
+                        imageBitmaps = imageBitmaps,
+                        onNewPage = {
+                            pdfDocument.finishPage(currentPage)
+                            currentPageNumber++
+                            pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                            currentPage = pdfDocument.startPage(pageInfo)
+                            canvas = currentPage.canvas
+                            yOffset = margin
+                            canvas
+                        }
+                    )
+                    idx = k
+                    continue
+                }
+            }
+
+            // HTML Div / Center text alignment container
+            if (trimmedLower.startsWith("<div") || trimmedLower.startsWith("<center")) {
+                val alignment = when {
+                    trimmedLower.contains("text-align:\\s*center".toRegex()) || trimmedLower.contains("align=[\"']?center".toRegex()) || trimmedLower.startsWith("<center") -> Layout.Alignment.ALIGN_CENTER
+                    trimmedLower.contains("text-align:\\s*right".toRegex()) || trimmedLower.contains("align=[\"']?right".toRegex()) -> Layout.Alignment.ALIGN_OPPOSITE
+                    trimmedLower.contains("text-align:\\s*left".toRegex()) || trimmedLower.contains("align=[\"']?left".toRegex()) -> Layout.Alignment.ALIGN_NORMAL
+                    else -> null
+                }
+                val isClosingSameLine = trimmedLower.contains("</div>") || trimmedLower.contains("</center>")
+                val divContentLines = mutableListOf<String>()
+                if (isClosingSameLine) {
+                    val inner = trimmedClean
+                        .replace(Regex("(?i)^<[\\s\\u00A0]*(div[^>]*|center)[\\s\\u00A0]*>"), "")
+                        .replace(Regex("(?i)<[\\s\\u00A0]*/[\\s\\u00A0]*(div|center)[\\s\\u00A0]*>$"), "")
+                        .trim()
+                    if (inner.isNotEmpty()) {
+                        divContentLines.add(inner)
+                    }
+                    idx++
+                } else {
+                    var k = idx + 1
+                    while (k < paragraphs.size) {
+                        val line = paragraphs[k]
+                        val lineClean = line.replace(Regex("[\\u200E\\u200F\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]"), "").trim().lowercase()
+                        if (lineClean.startsWith("</div") || lineClean.startsWith("</center") || lineClean.contains("</div>") || lineClean.contains("</center>")) {
+                            k++
+                            break
+                        }
+                        if (line.isNotBlank()) {
+                            divContentLines.add(line)
+                        }
+                        k++
+                    }
+                    idx = k
+                }
+                for (divLine in divContentLines) {
+                    val spannable = parseMarkdownAndHtmlToSpannable(
+                        context, divLine, baseFontSize, boldTypeface, italicTypeface, referenceMap
+                    )
+                    textPaint.textSize = baseFontSize
+                    textPaint.typeface = regularTypeface
+                    textPaint.color = Color.BLACK
+                    val isRtl = TextRepairProcessor.isParagraphRtl(divLine)
+                    val textDir = if (alignment == Layout.Alignment.ALIGN_CENTER) {
+                        if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                    } else if (alignment == Layout.Alignment.ALIGN_OPPOSITE) {
+                        TextDirectionHeuristics.RTL
+                    } else if (alignment == Layout.Alignment.ALIGN_NORMAL) {
+                        TextDirectionHeuristics.LTR
+                    } else {
+                        if (isRtl) TextDirectionHeuristics.RTL else TextDirectionHeuristics.LTR
+                    }
+                    val layoutAlign = alignment ?: (if (isRtl) Layout.Alignment.ALIGN_OPPOSITE else Layout.Alignment.ALIGN_NORMAL)
+                    val staticLayout = StaticLayout.Builder.obtain(spannable, 0, spannable.length, textPaint, printableWidth.toInt())
+                        .setAlignment(layoutAlign)
+                        .setTextDirection(textDir)
+                        .setLineSpacing(0f, 1.25f)
+                        .build()
+                    if (yOffset + staticLayout.height > pageHeight - margin) {
+                        pdfDocument.finishPage(currentPage)
+                        currentPageNumber++
+                        pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, currentPageNumber).create()
+                        currentPage = pdfDocument.startPage(pageInfo)
+                        canvas = currentPage.canvas
+                        yOffset = margin
+                    }
+                    canvas.save()
+                    canvas.translate(margin, yOffset)
+                    staticLayout.draw(canvas)
+                    canvas.restore()
+                    yOffset += staticLayout.height + baseFontSize * 0.4f
+                }
+                continue
+            }
+            if (trimmedLower.startsWith("</div") || trimmedLower.startsWith("</center")) {
+                idx++
+                continue
+            }
 
             // Check if this line starts a table (and not inside code block)
             if (trimmedClean.startsWith("|") && trimmedClean.endsWith("|")) {
@@ -1191,6 +1366,105 @@ object NativePdfExporter {
         }
     }
 
+    private data class ParsedHtmlTable(
+        val headerColumns: List<String>,
+        val dataRows: List<List<String>>,
+        val alignments: List<TableColumnAlignment>
+    )
+
+    private fun parseHtmlTable(tableHtml: String): ParsedHtmlTable? {
+        val trRegex = Regex("(?is)<tr[^>]*>(.*?)</tr>")
+        val trMatches = trRegex.findAll(tableHtml).toList()
+        if (trMatches.isEmpty()) return null
+
+        val theadRegex = Regex("(?is)<thead[^>]*>(.*?)</thead>")
+        val theadMatch = theadRegex.find(tableHtml)
+        val theadTrs = if (theadMatch != null) trRegex.findAll(theadMatch.value).toList() else emptyList()
+
+        fun cleanCellContent(html: String): String {
+            return html
+                .replace(Regex("(?i)<br\\s*/?>"), " ")
+                .replace(Regex("<[^>]+>"), "")
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .trim()
+        }
+
+        val grid = mutableListOf<MutableList<String?>>()
+        var numCols = 0
+        val cellRegex = Regex("(?is)<(th|td)([^>]*)>(.*?)</\\1>")
+
+        for (trMatch in trMatches) {
+            val trContent = trMatch.groupValues[1]
+            val cells = cellRegex.findAll(trContent).toList()
+            if (cells.isEmpty()) continue
+
+            var r = grid.indexOfFirst { row -> row.any { it == null } }
+            if (r == -1) {
+                grid.add(mutableListOf())
+                r = grid.lastIndex
+            }
+
+            var c = 0
+            for (cellMatch in cells) {
+                val attrs = cellMatch.groupValues[2]
+                val content = cleanCellContent(cellMatch.groupValues[3])
+
+                val rowspanMatch = Regex("""(?i)rowspan\s*=\s*["']?(\d+)["']?""").find(attrs)
+                val colspanMatch = Regex("""(?i)colspan\s*=\s*["']?(\d+)["']?""").find(attrs)
+                val rowspan = rowspanMatch?.groupValues?.get(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                val colspan = colspanMatch?.groupValues?.get(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+
+                while (c < grid[r].size && grid[r][c] != null) {
+                    c++
+                }
+
+                for (dr in 0 until rowspan) {
+                    while (grid.size <= r + dr) {
+                        grid.add(mutableListOf())
+                    }
+                    for (dc in 0 until colspan) {
+                        while (grid[r + dr].size <= c + dc) {
+                            grid[r + dr].add(null)
+                        }
+                        grid[r + dr][c + dc] = if (dr == 0 && dc == 0) content else (if (content.isNotEmpty()) " " else "")
+                    }
+                }
+                c += colspan
+                if (c > numCols) numCols = c
+            }
+        }
+
+        for (row in grid) {
+            while (row.size < numCols) {
+                row.add("")
+            }
+        }
+
+        val totalRows = grid.size
+        if (totalRows == 0 || numCols == 0) return null
+
+        val numHeaderRows = if (theadTrs.isNotEmpty()) theadTrs.size.coerceAtMost(totalRows) else 1
+        val headerCols = (0 until numCols).map { col ->
+            val nonBlank = (0 until numHeaderRows)
+                .map { rowIdx -> grid[rowIdx].getOrNull(col)?.trim() ?: "" }
+                .filter { it.isNotEmpty() }
+            if (nonBlank.isNotEmpty()) nonBlank.last() else "Col ${col + 1}"
+        }
+
+        val dataRows = (numHeaderRows until totalRows).map { rowIdx ->
+            (0 until numCols).map { col ->
+                grid[rowIdx].getOrNull(col)?.trim() ?: ""
+            }
+        }
+
+        val alignments = (0 until numCols).map { TableColumnAlignment.LEFT }
+        return ParsedHtmlTable(headerCols, dataRows, alignments)
+    }
+
     private fun drawPdfTable(
         context: Context,
         pdfDocument: PdfDocument,
@@ -1458,7 +1732,7 @@ object NativePdfExporter {
 
         // Match all advanced markdown/html structures precisely
         // NOTE: Do NOT use (?s) / dotall — it causes patterns like **...** to span across lines
-        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<del>[^\\n]*?</del>|<ins>[^\\n]*?</ins>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
+        val regex = Regex("(?i)(\\[!\\[[^\\]]*?\\]\\([^\\)]+?\\)\\]\\([^\\)]+?\\)|!\\[[^\\]]*?\\]\\([^\\)]+?\\)|\\*\\*\\*[^\\n]*?\\*\\*\\*|___[^\\n]*?___|\\*\\*[^\\n]*?\\*\\*|__[^\\n]*?__|\\*[^\\*\\n]+?\\*|_[^_\\n\\r]+?_|~~[^\\n]*?~~|<del>[^\\n]*?</del>|<ins>[^\\n]*?</ins>|<mark>[^\\n]*?</mark>|<u>[^\\n]*?</u>|<sub>[^\\n]*?</sub>|<sup>[^\\n]*?</sup>|<img\\b[^>]*\\/?>|<strong>[^\\n]*?</strong>|<em>[^\\n]*?</em>|<dt>[^\\n]*?</dt>|<dd>[^\\n]*?</dd>|\\[![^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\([^\\)]+?\\)|\\[[^\\]]+?\\]\\[[^\\]]*?\\]|\\[\\^[^\\]]+\\]|`[^`\\n]+?`|\\$\\$[^\\$\\n]+?\\$\\$|\\$[^\\$\\n]+?\\$|<https?://[^>\\s]+>|https?://[^\\s<>\\[\\]\\(ن)،,؛;。！？!?]+|<[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}>|[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}(?![\\w>])|<kbd>[^\\n]*?</kbd>|<[\\s\\u00A0]*abbr[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*abbr[\\s\\u00A0]*>|<[\\s\\u00A0]*span[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*span[\\s\\u00A0]*>|<[\\s\\u00A0]*font[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*font[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<[\\s\\u00A0]*a\\s+href[^>]*>[^\\n]*?<[\\s\\u00A0]*/[\\s\\u00A0]*a[\\s\\u00A0]*>|<[\\s\\u00A0]*div[^>]*>|<[\\s\\u00A0]*/[\\s\\u00A0]*div[\\s\\u00A0]*>|<br\\s*/?>|:[a-zA-Z0-9_+\\-]+:|\\\\\\$|  $)")
         val matches = regex.findAll(res)
 
         for (match in matches) {
@@ -1523,6 +1797,41 @@ object NativePdfExporter {
                     val content = matchedTextClean.substring(5, matchedTextClean.length - 6)
                     builder.append(parseMarkdownAndHtmlToSpannable(context, content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
                     builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<mark>") && matchedTextLower.endsWith("</mark>") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(6, matchedTextClean.length - 7)
+                    builder.append(parseMarkdownAndHtmlToSpannable(context, content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                    builder.setSpan(android.text.style.BackgroundColorSpan(Color.rgb(255, 241, 118)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.ForegroundColorSpan(Color.BLACK), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<u>") && matchedTextLower.endsWith("</u>") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(3, matchedTextClean.length - 4)
+                    builder.append(parseMarkdownAndHtmlToSpannable(context, content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                    builder.setSpan(android.text.style.UnderlineSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<sub>") && matchedTextLower.endsWith("</sub>") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(5, matchedTextClean.length - 6)
+                    builder.append(parseMarkdownAndHtmlToSpannable(context, content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                    builder.setSpan(android.text.style.SubscriptSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.RelativeSizeSpan(0.75f), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<sup>") && matchedTextLower.endsWith("</sup>") -> {
+                    val start = builder.length
+                    val content = matchedTextClean.substring(5, matchedTextClean.length - 6)
+                    builder.append(parseMarkdownAndHtmlToSpannable(context, content, baseFontSize, boldTypeface, italicTypeface, referenceMap))
+                    builder.setSpan(android.text.style.SuperscriptSpan(), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(android.text.style.RelativeSizeSpan(0.75f), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                matchedTextLower.startsWith("<img") -> {
+                    val altMatch = Regex("""(?i)alt\s*=\s*["']([^"']*)["']""").find(matchedTextClean)
+                    val altText = altMatch?.groupValues?.get(1)?.ifEmpty { "image" } ?: "image"
+                    val start = builder.length
+                    builder.append("\uD83D\uDDBC $altText")
+                    builder.setSpan(android.text.style.ForegroundColorSpan(Color.rgb(14, 132, 87)), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
                 matchedTextLower.startsWith("<strong>") && matchedTextLower.endsWith("</strong>") -> {
                     val start = builder.length
